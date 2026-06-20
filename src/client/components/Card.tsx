@@ -6,7 +6,8 @@ interface Props {
   selected?: boolean;
   onClick?: () => void;
   small?: boolean;
-  isHighlighted?: boolean;  // For new card highlight animation
+  isHighlighted?: boolean;
+  animateEnter?: boolean;
 }
 
 const getSuitSymbol = (suit: Suit) => {
@@ -39,7 +40,7 @@ const getRankLabel = (rank: Rank) => {
   }
 };
 
-export const Card: React.FC<Props> = ({ card, selected, onClick, small, isHighlighted }) => {
+export const Card: React.FC<Props> = ({ card, selected, onClick, small, isHighlighted, animateEnter }) => {
   const isRed = card.suit === Suit.Hearts || card.suit === Suit.Diamonds || card.rank === Rank.BigJoker;
   const isJoker = card.suit === Suit.Joker;
   
@@ -49,7 +50,7 @@ export const Card: React.FC<Props> = ({ card, selected, onClick, small, isHighli
     : "w-16 h-24 text-base p-2 hover:-translate-y-2";
   const selectClasses = selected ? "ring-2 ring-blue-500 -translate-y-4" : "";
   const colorClass = isRed ? "text-red-600" : "text-black";
-  // Highlight animation for new cards - glowing green border with pulse
+  const enterClass = animateEnter ? "card-enter" : "";
   const highlightClasses = isHighlighted 
     ? "ring-4 ring-green-400 shadow-[0_0_15px_rgba(74,222,128,0.7)] animate-pulse" 
     : "";
@@ -57,7 +58,7 @@ export const Card: React.FC<Props> = ({ card, selected, onClick, small, isHighli
   if (isJoker) {
      return (
         <div 
-          className={`${baseClasses} ${sizeClasses} ${selectClasses} ${highlightClasses} ${colorClass}`}
+          className={`${baseClasses} ${sizeClasses} ${selectClasses} ${enterClass} ${highlightClasses} ${colorClass}`}
           onClick={onClick}
         >
            <div className="text-center w-full h-full flex items-center justify-center font-bold writing-vertical">
@@ -69,7 +70,7 @@ export const Card: React.FC<Props> = ({ card, selected, onClick, small, isHighli
 
   return (
     <div 
-      className={`${baseClasses} ${sizeClasses} ${selectClasses} ${highlightClasses} ${colorClass}`}
+      className={`${baseClasses} ${sizeClasses} ${selectClasses} ${enterClass} ${highlightClasses} ${colorClass}`}
       onClick={onClick}
     >
       <div className="font-bold text-left leading-none">{getRankLabel(card.rank)}</div>

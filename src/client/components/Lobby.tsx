@@ -52,7 +52,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-[#1e1e1e] text-gray-300 p-4 relative overflow-hidden">
+    <div className="flex flex-col items-center justify-center min-h-screen text-gray-300 p-4 relative overflow-hidden">
       {/* Subtle background pattern - card suit watermark */}
       <div className="absolute inset-0 pointer-events-none select-none overflow-hidden opacity-[0.03]">
         <div className="absolute top-[10%] left-[5%] text-[20rem] leading-none">♠</div>

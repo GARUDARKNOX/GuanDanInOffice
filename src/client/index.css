@@ -1,3 +1,112 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* 动态粒子背景 */
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.15; }
+  50% { transform: translateY(-30px) rotate(180deg); opacity: 0.3; }
+}
+@keyframes float-delayed {
+  0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.1; }
+  50% { transform: translateY(-20px) rotate(-90deg); opacity: 0.25; }
+}
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes card-deal {
+  0% { opacity: 0; transform: translateY(-60px) rotate(-10deg) scale(0.7); }
+  60% { opacity: 1; transform: translateY(5px) rotate(2deg) scale(1.02); }
+  100% { opacity: 1; }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(250, 204, 21, 0.3), 0 0 10px rgba(250, 204, 21, 0.1); }
+  50% { box-shadow: 0 0 15px rgba(250, 204, 21, 0.6), 0 0 30px rgba(250, 204, 21, 0.3); }
+}
+@keyframes bomb-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px) rotate(-2deg); }
+  40% { transform: translateX(8px) rotate(2deg); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(5px); }
+}
+@keyframes trophy-bounce {
+  0% { transform: scale(0) rotate(-20deg); opacity: 0; }
+  50% { transform: scale(1.3) rotate(5deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+@keyframes sparkle {
+  0%, 100% { opacity: 0; transform: scale(0); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* 牌桌渐变背景 */
+.animated-bg {
+  background: linear-gradient(-45deg, #1a1a3e, #1e2a4a, #1a3a5c, #0f4a6a);
+  background-size: 400% 400%;
+  animation: gradient-shift 15s ease infinite;
+}
+
+/* 粒子 */
+.particle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: rgba(250, 204, 21, 0.5);
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 0 6px rgba(250, 204, 21, 0.3);
+}
+.particle:nth-child(odd) { animation: float 6s ease-in-out infinite; }
+.particle:nth-child(even) { animation: float-delayed 8s ease-in-out infinite; }
+.particle:nth-child(3n) { width: 5px; height: 5px; animation-duration: 10s; }
+.particle:nth-child(5n) { width: 10px; height: 10px; animation-duration: 7s; opacity: 0.4; }
+
+/* 发牌动画 - backwards保持初始隐藏，结束后释放transform */
+.card-enter {
+  animation: card-deal 0.5s ease-out backwards;
+}
+.card-enter:nth-child(1) { animation-delay: 0s; }
+.card-enter:nth-child(2) { animation-delay: 0.03s; }
+.card-enter:nth-child(3) { animation-delay: 0.06s; }
+.card-enter:nth-child(4) { animation-delay: 0.09s; }
+.card-enter:nth-child(5) { animation-delay: 0.12s; }
+.card-enter:nth-child(6) { animation-delay: 0.15s; }
+.card-enter:nth-child(7) { animation-delay: 0.18s; }
+.card-enter:nth-child(8) { animation-delay: 0.21s; }
+.card-enter:nth-child(9) { animation-delay: 0.24s; }
+.card-enter:nth-child(10) { animation-delay: 0.27s; }
+.card-enter:nth-child(11) { animation-delay: 0.3s; }
+.card-enter:nth-child(12) { animation-delay: 0.33s; }
+.card-enter:nth-child(13) { animation-delay: 0.36s; }
+.card-enter:nth-child(14) { animation-delay: 0.39s; }
+.card-enter:nth-child(15) { animation-delay: 0.42s; }
+.card-enter:nth-child(16) { animation-delay: 0.45s; }
+.card-enter:nth-child(17) { animation-delay: 0.48s; }
+.card-enter:nth-child(18) { animation-delay: 0.51s; }
+.card-enter:nth-child(19) { animation-delay: 0.54s; }
+.card-enter:nth-child(20) { animation-delay: 0.57s; }
+.card-enter:nth-child(21) { animation-delay: 0.6s; }
+.card-enter:nth-child(22) { animation-delay: 0.63s; }
+.card-enter:nth-child(23) { animation-delay: 0.66s; }
+.card-enter:nth-child(24) { animation-delay: 0.69s; }
+.card-enter:nth-child(25) { animation-delay: 0.72s; }
+.card-enter:nth-child(26) { animation-delay: 0.75s; }
+.card-enter:nth-child(27) { animation-delay: 0.78s; }
+
+/* 当前玩家脉冲 */
+.turn-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* 炸弹抖动 */
+.bomb-shake {
+  animation: bomb-shake 0.5s ease-in-out;
+}
+
+/* 奖杯弹入 */
+.trophy-bounce {
+  animation: trophy-bounce 0.8s ease-out both;
+}

@@ -130,10 +130,12 @@ export const GameTable: React.FC<Props> = ({
   const myHandOriginal = gameState ? (gameState.hands[mySeat] as CardType[]) : [];
   const [sortedHand, setSortedHand] = useState<CardType[]>([]);
   const [straightFlushIds, setStraightFlushIds] = useState<Set<string>>(new Set());
+  const [dealVersion, setDealVersion] = useState(0);
 
   useEffect(() => {
       if (myHandOriginal.length > 0 && gameState) {
           setSortedHand(myHandOriginal);
+          setDealVersion(v => v + 1);
           
           // Detect Straight Flushes for Highlighting
           const sfSet = new Set<string>();
@@ -376,7 +378,7 @@ export const GameTable: React.FC<Props> = ({
            </div>
          )}
          
-         <div className="w-12 h-12 bg-gray-300 rounded-full flex items-center justify-center mb-2 relative">
+         <div className={`w-12 h-12 bg-gray-300 rounded-full flex items-center justify-center mb-2 relative ${gameState && gameState.currentTurn === data.seat ? 'turn-glow' : ''}`}>
            {data.player ? data.player.name[0].toUpperCase() : (gameState ? '?' : '+')}
            {data.isTeammate && <div className="absolute -top-1 -right-1 bg-blue-500 text-xs text-white px-1 rounded">友</div>}
            {data.isOpponent && <div className="absolute -top-1 -right-1 bg-red-500 text-xs text-white px-1 rounded">敌</div>}
@@ -461,7 +463,7 @@ export const GameTable: React.FC<Props> = ({
   };
 
   return (
-    <div className="relative w-full h-screen bg-[#1e1e1e] overflow-hidden flex items-center justify-center font-mono">
+    <div className="relative w-full h-screen overflow-hidden flex items-center justify-center font-mono">
       <div className="absolute inset-20 border-2 border-[#333333] rounded-xl opacity-50 pointer-events-none"></div>
 
       <PlayerArea data={top} pos="top-4 left-1/2 -translate-x-1/2" />
@@ -673,6 +675,7 @@ export const GameTable: React.FC<Props> = ({
                   selected={selectedCardIds.includes(card.id)}
                   onClick={() => toggleSelect(card.id)}
                   isHighlighted={highlightedCardIds.has(card.id)}
+                  animateEnter={dealVersion > 0}
                 />
               ))
           ) : (

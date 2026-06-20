@@ -31,13 +31,21 @@ export class RoomManager {
   }
 
   handleDisconnect(socket: Socket) {
-    for (const room of this.rooms.values()) {
+    for (const [id, room] of this.rooms) {
       room.handleDisconnect(socket);
+      // 房间已空，清理
+      const hasActive = room.players.some(p => p !== null && !p.isDisconnected);
+      if (!hasActive) {
+        this.rooms.delete(id);
+        console.log(`[RoomManager] Room ${id} removed`);
+      }
     }
   }
 
   getRoomList() {
-    const roomList = Array.from(this.rooms.values()).map(room => ({
+    const roomList = Array.from(this.rooms.entries())
+      .filter(([, room]) => room.players.some(p => p !== null && !p.isDisconnected))
+      .map(([, room]) => ({
       id: room.id,
       playerCount: room.players.filter(p => p !== null && !p.isDisconnected).length,
       maxPlayers: 4,
@@ -51,6 +59,11 @@ export class RoomManager {
   handleGetRoomList(socket: Socket) {
     const roomList = this.getRoomList();
     socket.emit('roomList', roomList);
+  }
+
+  removeRoom(roomId: string) {
+    this.rooms.delete(roomId);
+    console.log(`[RoomManager] Room ${roomId} removed`);
   }
 }
 
@@ -266,6 +279,16 @@ class Room {
            // Let's remove if game not started.
            this.players[index] = null;
            this.io.to(this.id).emit('error', `Player ${playerName} left the room`);
+      }
+      // 如果房间没人了（全断开或全离开），清理房间
+      const hasActivePlayers = this.players.some(p => p !== null && !p.isDisconnected);
+      if (!hasActivePlayers) {
+          console.log(`[Room] Room ${this.id} empty, cleaning up`);
+          if (this.match) {
+              this.match.forceEndMatch();
+              this.match = null;
+          }
+          this.io.to(this.id).emit('roomClosed');
       }
       this.broadcastState();
     }
