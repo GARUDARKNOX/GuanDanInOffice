@@ -33,9 +33,9 @@ export class RoomManager {
   handleDisconnect(socket: Socket) {
     for (const [id, room] of this.rooms) {
       room.handleDisconnect(socket);
-      // 房间已空，清理
-      const hasActive = room.players.some(p => p !== null && !p.isDisconnected);
-      if (!hasActive) {
+      // 房间没有活跃真人玩家时清理；Bot 不应撑住房间
+      const hasActiveHuman = room.players.some(p => p !== null && !p.isBot && !p.isDisconnected);
+      if (!hasActiveHuman) {
         this.rooms.delete(id);
         console.log(`[RoomManager] Room ${id} removed`);
       }
@@ -44,15 +44,18 @@ export class RoomManager {
 
   getRoomList() {
     const roomList = Array.from(this.rooms.entries())
-      .filter(([, room]) => room.players.some(p => p !== null && !p.isDisconnected))
-      .map(([, room]) => ({
-      id: room.id,
-      playerCount: room.players.filter(p => p !== null && !p.isDisconnected).length,
-      maxPlayers: 4,
-      inGame: room.match !== null && room.match.currentGame !== null,
-      gameMode: room.gameMode,
-      hostName: room.players[0]?.name || 'Unknown'
-    }));
+      .filter(([, room]) => room.players.some(p => p !== null && !p.isBot && !p.isDisconnected))
+      .map(([, room]) => {
+        const activeHumans = room.players.filter(p => p !== null && !p.isBot && !p.isDisconnected);
+        return {
+          id: room.id,
+          playerCount: activeHumans.length,
+          maxPlayers: 4,
+          inGame: room.match !== null && room.match.currentGame !== null,
+          gameMode: room.gameMode,
+          hostName: activeHumans[0]?.name || 'Unknown'
+        };
+      });
     return roomList;
   }
 
@@ -280,10 +283,10 @@ class Room {
            this.players[index] = null;
            this.io.to(this.id).emit('error', `Player ${playerName} left the room`);
       }
-      // 如果房间没人了（全断开或全离开），清理房间
-      const hasActivePlayers = this.players.some(p => p !== null && !p.isDisconnected);
-      if (!hasActivePlayers) {
-          console.log(`[Room] Room ${this.id} empty, cleaning up`);
+      // 如果房间没有活跃真人玩家（只剩Bot或全断开），清理房间
+      const hasActiveHumanPlayers = this.players.some(p => p !== null && !p.isBot && !p.isDisconnected);
+      if (!hasActiveHumanPlayers) {
+          console.log(`[Room] Room ${this.id} empty of human players, cleaning up`);
           if (this.match) {
               this.match.forceEndMatch();
               this.match = null;
