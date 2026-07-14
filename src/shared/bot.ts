@@ -1,5 +1,6 @@
 import { getHandType, getAllPossibleHandTypes, compareHands, sortCards, getLogicValue, isConsecutive } from './rules';
 import { Rank, Card, Hand, HandType, Suit } from './types';
+import { handTypeProb, correlation, probRocket, probWildCard } from './strategyData';
 
 // ---- 全局牌追踪器（108张牌，两副标准扑克） ----
 
@@ -647,6 +648,9 @@ export class Bot {
     }
     const sfs = this.findStraightFlushes();
     score += sfs.length * 20;
+    // 同花顺稀有(p≈19%)，持有就是大优势
+    const sfProb = handTypeProb('同花顺') || 0.19;
+    if (sfs.length > 0) score += Math.round((1 - sfProb) * 50);
     const sj = this.cards.filter(c => c.rank === Rank.SmallJoker).length;
     const bj = this.cards.filter(c => c.rank === Rank.BigJoker).length;
     if (sj === 2 && bj === 2) score += 40;
@@ -1085,7 +1089,12 @@ export class Bot {
     if (isBomb) {
       // 自己牌多且对方牌也多 → 不浪费对炸
       if (myCards > 10 && enemyCards > 5) return null;
-      // 否则找更大的炸
+      // 对方出的是4张炸，且我方只剩1个4张炸 → 保留（对方可能还有）
+      if (target.type === HandType.Bomb && target.bombCount === 4 && myCards > 8 && this.countMyBombs() <= 1) {
+        const bombProb4 = handTypeProb('4张炸') || 0.61;
+        // 对方出4炸是大概率事件 (p≈61%)，我方只剩1炸时不宜浪费对炸
+        return null;
+      }
       return this.findBomb(target);
     }
 
