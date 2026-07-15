@@ -1,6 +1,5 @@
 import { getHandType, getAllPossibleHandTypes, compareHands, sortCards, getLogicValue, isConsecutive } from './rules';
 import { Rank, Card, Hand, HandType, Suit } from './types';
-import { handTypeProb, correlation, probRocket, probWildCard } from './strategyData';
 
 // ---- 全局牌追踪器（108张牌，两副标准扑克） ----
 
@@ -123,12 +122,6 @@ class HandPlan {
     if (sj.length === 2 && bj.length === 2) {
       bombGroups.push({ cards: [...sj, ...bj], type: HandType.FourKings, value: 999 });
       this.removeCards(remaining, [...sj, ...bj].map(c => c.id));
-    }
-
-    // 1.5 万能牌优先配同花顺和炸弹（逢人配不浪费在散牌上）
-    const wildBombGroups = this.extractWildBombsAndSFs(remaining, level);
-    for (const g of wildBombGroups) {
-      bombGroups.push(g);
     }
 
     // 2. 逐轮评分选最优组（剩余非炸弹牌）
