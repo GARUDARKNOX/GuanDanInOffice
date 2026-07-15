@@ -1,4 +1,4 @@
-import { getHandType, getAllPossibleHandTypes, compareHands, sortCards, getLogicValue, isConsecutive } from './rules';
+import { getHandType, compareHands, sortCards, getLogicValue, isConsecutive } from './rules';
 import { Rank, Card, Hand, HandType, Suit } from './types';
 
 // ---- 全局牌追踪器（108张牌，两副标准扑克） ----
@@ -289,10 +289,8 @@ class HandPlan {
     const wilds = cards.filter(c => c.isWild);
 
     const addCandidate = (candidateCards: Card[]) => {
-      const hands = getAllPossibleHandTypes(candidateCards, level);
-      for (const hand of hands) {
-        // 同花顺属于炸弹资源，不放进普通顺子候选，避免自由出牌浪费炸弹
-        if (![HandType.Straight, HandType.Tube, HandType.Plate].includes(hand.type)) continue;
+      const hand = getHandType(candidateCards, level);
+      if (hand && ![HandType.Bomb, HandType.StraightFlush, HandType.FourKings].includes(hand.type)) {
         const exists = result.some(r =>
           r.type === hand.type &&
           r.value === hand.value &&
