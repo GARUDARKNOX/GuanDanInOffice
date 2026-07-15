@@ -649,8 +649,7 @@ export class Bot {
     const sfs = this.findStraightFlushes();
     score += sfs.length * 20;
     // 同花顺稀有(p≈19%)，持有就是大优势
-    const sfProb = handTypeProb('同花顺') || 0.19;
-    if (sfs.length > 0) score += Math.round((1 - sfProb) * 50);
+    if (sfs.length > 0) score += 40;
     const sj = this.cards.filter(c => c.rank === Rank.SmallJoker).length;
     const bj = this.cards.filter(c => c.rank === Rank.BigJoker).length;
     if (sj === 2 && bj === 2) score += 40;
@@ -705,7 +704,19 @@ export class Bot {
 
     // === 默认：按规划出最小组 ===
     const planned = this.handPlan.getNextFreePlay(this.cards);
-    if (planned) return planned;
+    if (planned) {
+      // 探路策略：如果规划组是大牌(value>8)，先试试更小的单张/对子
+      // 避免"先出大牌再出小牌"的毛病
+      const plannedHand = getHandType(planned, this.level);
+      if (plannedHand && plannedHand.value > 8) {
+        // 找最小的对子或单张作为探路牌
+        const smallPair = this.findSmallestPair(8);
+        if (smallPair) return smallPair;
+        const smallSingle = this.findSmallestSingle(8);
+        if (smallSingle) return smallSingle;
+      }
+      return planned;
+    }
 
     return this.decideFreePlayFallback();
   }
@@ -738,6 +749,29 @@ export class Bot {
       if (getLogicValue(c.rank, this.level) > getLogicValue(best.rank, this.level)) best = c;
     }
     return [best];
+  }
+
+  /** 找最小的对子（value < threshold），用于探路 */
+  private findSmallestPair(thresholdValue: number): Card[] | null {
+    const pairs = this.getGroups(2);
+    pairs.sort((a, b) => getLogicValue(a[0].rank, this.level) - getLogicValue(b[0].rank, this.level));
+    for (const p of pairs) {
+      const val = getLogicValue(p[0].rank, this.level);
+      if (val < thresholdValue) return p;
+    }
+    return null;
+  }
+
+  /** 找最小的单张（value < threshold），用于探路 */
+  private findSmallestSingle(thresholdValue: number): Card[] | null {
+    const sorted = [...this.cards].sort(
+      (a, b) => getLogicValue(a.rank, this.level) - getLogicValue(b.rank, this.level)
+    );
+    for (const c of sorted) {
+      const val = getLogicValue(c.rank, this.level);
+      if (val < thresholdValue && !c.isWild) return [c];
+    }
+    return null;
   }
 
   /** 倒数第二大对子（开局：出第二小的对子，不暴露最弱牌） */
@@ -857,11 +891,28 @@ export class Bot {
     if (lastPlayerIndex === partner) {
       // 如果队友出最后一张/一把走牌（头游），不压
       if (this.handsInfo[partner] <= target.cards.length) return null;
-      // 送队友：用最小牌压过，让对手更难接
-      if (this.handsInfo[partner] <= 2 && this.handsInfo[this.seatIndex] > 2) {
-        return this.findWeakBeat(target);
+
+      // 无论队友剩几张，只要 Bot 有比队友牌更小的同类型牌，就顺牌过
+      // 帮队友抬牌，不要让对手轻松接牌
+      const beats = this.findAllBeatsPreservingPlan(target);
+      if (beats.length > 0) {
+        // 队友出小牌(value≤11)且Bot有很小的牌 → 顺一道
+        if (target.value <= 11) {
+          // 找最小的跟牌
+          const smallest = this.pickSmallestBeat(beats, target);
+          if (smallest) return smallest;
+        }
+        // 队友手里没剩几张了 → 用最小牌压，减少对手接牌机会
+        if (this.handsInfo[partner] <= 5) {
+          const smallest = this.pickSmallestBeat(beats, target);
+          if (smallest) return smallest;
+        }
       }
+
+      // 队友牌多且打大牌(value>11) → 不压，让队友继续出
+      return null;
     }
+    // 上家是队友出的牌（很少见），不压
     return null;
   }
 
@@ -1091,8 +1142,6 @@ export class Bot {
       if (myCards > 10 && enemyCards > 5) return null;
       // 对方出的是4张炸，且我方只剩1个4张炸 → 保留（对方可能还有）
       if (target.type === HandType.Bomb && target.bombCount === 4 && myCards > 8 && this.countMyBombs() <= 1) {
-        const bombProb4 = handTypeProb('4张炸') || 0.61;
-        // 对方出4炸是大概率事件 (p≈61%)，我方只剩1炸时不宜浪费对炸
         return null;
       }
       return this.findBomb(target);
