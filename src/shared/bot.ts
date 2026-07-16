@@ -126,9 +126,9 @@ class HandPlan {
       this.removeCards(remaining, [...sj, ...bj].map(c => c.id));
     }
 
-    // 1.5 万能牌优先配同花顺和炸弹（逢人配不浪费在散牌上）
-    const wildBombGroups = this.extractWildBombsAndSFs(remaining, level);
-    for (const g of wildBombGroups) {
+    // 1.5 预提取纯同花顺（不用万能牌，纯天然5张同花连续）
+    const sfGroups = this.extractPureStraightFlushes(remaining);
+    for (const g of sfGroups) {
       bombGroups.push(g);
     }
 
@@ -173,66 +173,48 @@ class HandPlan {
   }
 
   /**
-   * 万能牌优先配同花顺和炸弹。
-   * 同花顺 > 炸弹（掼蛋中同花顺压炸弹），所以先配同花顺，再配炸弹。
-   * 提取后从 remaining 移除，防止万能牌被散顺子/连对消耗。
+   * 预提取纯同花顺（5张同花连续，不用万能牌）。
+   * 从大到小扫描每个花色，贪心提取不重叠的同花顺。
+   * 提取后从 remaining 移除，防止被散顺子/连对消耗。
    */
-  private extractWildBombsAndSFs(remaining: Card[], level: number): { cards: Card[]; type: HandType; value: number }[] {
+  private extractPureStraightFlushes(remaining: Card[]): { cards: Card[]; type: HandType; value: number }[] {
     const result: { cards: Card[]; type: HandType; value: number }[] = [];
-    const usedCardIds = new Set<string>();
-    const availWilds = () => remaining.filter(c => c.isWild && !usedCardIds.has(c.id));
+    const usedIds = new Set<string>();
 
-    // 1. 同花顺优先（纯同花顺 + 万能牌补缺）
     for (const s of [Suit.Spades, Suit.Hearts, Suit.Clubs, Suit.Diamonds]) {
-      const starts = [2, 3, 4, 5, 6, 7, 8, 9, 10, 14]; // 14 = A-2-3-4-5 轮子
-      for (const start of starts) {
-        const ranks = start === 14 ? [14, 2, 3, 4, 5] : [start, start + 1, start + 2, start + 3, start + 4];
-        const found: Card[] = [];
-        const missing: number[] = [];
-        for (const r of ranks) {
-          const c = remaining.find(card =>
-            card.suit === s && !card.isWild && card.rank === r && !usedCardIds.has(card.id)
-          );
-          if (c) found.push(c);
-          else missing.push(r);
+      // 取该花色未使用的非万能牌，按rank降序
+      const suitCards = remaining
+        .filter(c => c.suit === s && !c.isWild && c.rank <= Rank.Ace && !usedIds.has(c.id))
+        .sort((a, b) => b.rank - a.rank);
+
+      // 滑动窗口找连续5张
+      for (let i = 0; i <= suitCards.length - 5; i++) {
+        const window = suitCards.slice(i, i + 5);
+        const ascRanks = window.map(c => c.rank).sort((a, b) => a - b);
+        if (isConsecutive(ascRanks)) {
+          const hand = getHandType(window, 2); // level 不影响同花顺识别
+          if (hand && hand.type === HandType.StraightFlush) {
+            result.push({ cards: [...window], type: HandType.StraightFlush, value: hand.value });
+            window.forEach(c => usedIds.add(c.id));
+          }
         }
-        if (missing.length === 0) {
-          // 纯同花顺
-          const hand = getHandType(found, level);
-          if (hand && hand.type === HandType.StraightFlush) {
-            result.push({ cards: found, type: HandType.StraightFlush, value: hand.value });
-            found.forEach(c => usedCardIds.add(c.id));
-          }
-        } else if (missing.length <= availWilds().length) {
-          // 万能牌补缺
-          const ws = availWilds().slice(0, missing.length);
-          const cards = [...found, ...ws];
-          const hand = getHandType(cards, level);
-          if (hand && hand.type === HandType.StraightFlush) {
-            result.push({ cards, type: HandType.StraightFlush, value: hand.value });
-            cards.forEach(c => usedCardIds.add(c.id));
-          }
+      }
+
+      // 也检查 A-2-3-4-5 轮子（最小同花顺）
+      const ace = remaining.find(c => c.suit === s && c.rank === 14 && !usedIds.has(c.id));
+      if (ace) {
+        const low = [2, 3, 4, 5].map(r =>
+          remaining.find(c => c.suit === s && c.rank === r && !usedIds.has(c.id))
+        );
+        if (low.every(c => c)) {
+          const wheel = [ace, ...low] as Card[];
+          result.push({ cards: wheel, type: HandType.StraightFlush, value: 5 });
+          wheel.forEach(c => usedIds.add(c.id));
         }
       }
     }
 
-    // 2. 炸弹：3张同rank（非万能）+ 万能牌
-    const g = this.groupCards(remaining.filter(c => !usedCardIds.has(c.id)));
-    for (const [r, cs] of g) {
-      if (r === level || r === Rank.SmallJoker || r === Rank.BigJoker) continue;
-      if (r < 2 || r > 14) continue;
-      const normals = cs.filter(c => !c.isWild);
-      if (normals.length >= 3 && availWilds().length > 0) {
-        const bombCards = [...normals.slice(0, 3), availWilds()[0]];
-        const hand = getHandType(bombCards, level);
-        if (hand && hand.type === HandType.Bomb) {
-          result.push({ cards: bombCards, type: HandType.Bomb, value: hand.value });
-          bombCards.forEach(c => usedCardIds.add(c.id));
-        }
-      }
-    }
-
-    this.removeCards(remaining, Array.from(usedCardIds));
+    this.removeCards(remaining, Array.from(usedIds));
     return result;
   }
 
