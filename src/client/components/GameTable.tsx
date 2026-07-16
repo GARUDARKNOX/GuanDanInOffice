@@ -284,8 +284,10 @@ export const GameTable: React.FC<Props> = ({
       'ring-2 ring-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.4)]',
   ];
 
-  const groupTypeNames: { [key: number]: string } = {
-      0: '单张', 1: '对子', 2: '三张', 3: '三带二', 4: '顺子', 5: '连对', 6: '钢板', 7: '炸弹', 8: '同花顺', 9: '天王炸',
+  const groupTypeNames: { [key: string]: string } = {
+      'Single': '单张', 'Pair': '对子', 'Trips': '三张', 'TripsWithPair': '三带二',
+      'Straight': '顺子', 'Tube': '连对', 'Plate': '钢板', 'Bomb': '炸弹',
+      'StraightFlush': '同花顺', 'FourKings': '天王炸',
   };
   
   const handleTributeAction = () => {
@@ -714,13 +716,32 @@ export const GameTable: React.FC<Props> = ({
 
         {/* 自动组牌分组信息 */}
         {showArrange && arrangeGroups && arrangeGroups.length > 0 && (
-            <div className="mb-4 pointer-events-auto flex flex-wrap gap-2 justify-center">
-                {arrangeGroups.map((g, i) => (
-                    <div key={i} className={`px-3 py-1 rounded-full text-xs font-bold ${g.isBomb ? 'bg-red-600/80 text-white' : 'bg-white/10 text-white'}`}>
-                        <span className={`inline-block w-2 h-2 rounded-full mr-1 ${groupColors[i % groupColors.length].includes('cyan') ? 'bg-cyan-400' : groupColors[i % groupColors.length].includes('green') ? 'bg-green-400' : groupColors[i % groupColors.length].includes('purple') ? 'bg-purple-400' : groupColors[i % groupColors.length].includes('orange') ? 'bg-orange-400' : groupColors[i % groupColors.length].includes('pink') ? 'bg-pink-400' : 'bg-blue-400'}`}></span>
-                        {groupTypeNames[g.type] || '?'} ({g.cards.length}张)
-                    </div>
-                ))}
+            <div className="mb-4 pointer-events-auto flex flex-wrap gap-2 justify-center max-w-3xl">
+                {arrangeGroups.map((g, i) => {
+                    const colorClass = groupColors[i % groupColors.length];
+                    const dotColor = colorClass.includes('cyan') ? 'bg-cyan-400' : colorClass.includes('green') ? 'bg-green-400' : colorClass.includes('purple') ? 'bg-purple-400' : colorClass.includes('orange') ? 'bg-orange-400' : colorClass.includes('pink') ? 'bg-pink-400' : 'bg-blue-400';
+                    const typeName = groupTypeNames[g.type] || '?';
+                    const cardStr = g.cards.map(c => {
+                        if (c.rank === 15) return '小王';
+                        if (c.rank === 16) return '大王';
+                        const rankStr = c.rank === 14 ? 'A' : c.rank === 13 ? 'K' : c.rank === 12 ? 'Q' : c.rank === 11 ? 'J' : c.rank === 10 ? '10' : String(c.rank);
+                        return rankStr + (c.isWild ? '*' : '');
+                    }).join(' ');
+                    return (
+                        <div
+                          key={i}
+                          onClick={() => {
+                            setSelectedCardIds(g.cards.map(c => c.id));
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:scale-105 transition-transform ${g.isBomb ? 'bg-red-600/80 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                          title="点击选中这组牌"
+                        >
+                            <span className={`inline-block w-2 h-2 rounded-full ${dotColor}`}></span>
+                            <span className="opacity-80">{typeName}</span>
+                            <span className="font-mono text-[10px] opacity-60">{cardStr}</span>
+                        </div>
+                    );
+                })}
             </div>
         )}
 
