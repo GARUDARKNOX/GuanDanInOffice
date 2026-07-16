@@ -1,4 +1,4 @@
-import { getHandType, compareHands, sortCards, getLogicValue, isConsecutive } from './rules';
+import { getHandType, getAllPossibleHandTypes, compareHands, sortCards, getLogicValue, isConsecutive } from './rules';
 import { Rank, Card, Hand, HandType, Suit } from './types';
 
 // ---- 全局牌追踪器（108张牌，两副标准扑克） ----
@@ -122,6 +122,12 @@ class HandPlan {
     if (sj.length === 2 && bj.length === 2) {
       bombGroups.push({ cards: [...sj, ...bj], type: HandType.FourKings, value: 999 });
       this.removeCards(remaining, [...sj, ...bj].map(c => c.id));
+    }
+
+    // 1.5 万能牌优先配同花顺和炸弹（逢人配不浪费在散牌上）
+    const wildBombGroups = this.extractWildBombsAndSFs(remaining, level);
+    for (const g of wildBombGroups) {
+      bombGroups.push(g);
     }
 
     // 2. 逐轮评分选最优组（剩余非炸弹牌）
@@ -289,8 +295,10 @@ class HandPlan {
     const wilds = cards.filter(c => c.isWild);
 
     const addCandidate = (candidateCards: Card[]) => {
-      const hand = getHandType(candidateCards, level);
-      if (hand && ![HandType.Bomb, HandType.StraightFlush, HandType.FourKings].includes(hand.type)) {
+      const hands = getAllPossibleHandTypes(candidateCards, level);
+      for (const hand of hands) {
+        // 同花顺属于炸弹资源，不放进普通顺子候选，避免自由出牌浪费炸弹
+        if (![HandType.Straight, HandType.Tube, HandType.Plate].includes(hand.type)) continue;
         const exists = result.some(r =>
           r.type === hand.type &&
           r.value === hand.value &&
@@ -639,8 +647,6 @@ export class Bot {
     }
     const sfs = this.findStraightFlushes();
     score += sfs.length * 20;
-    // 同花顺稀有(p≈19%)，持有就是大优势
-    if (sfs.length > 0) score += 40;
     const sj = this.cards.filter(c => c.rank === Rank.SmallJoker).length;
     const bj = this.cards.filter(c => c.rank === Rank.BigJoker).length;
     if (sj === 2 && bj === 2) score += 40;
@@ -662,9 +668,10 @@ export class Bot {
     return partnerCards <= 8 ? 'supporter' : 'attacker';
   }
 
-  // ==================== 自由出牌（按规划） ====================
+  // ==================== 自由出牌（从最小打起） ====================
 
   private decideFreePlay(): Card[] {
+    // 能一把走完
     const allOut = this.tryPlayAll();
     if (allOut) return allOut;
 
@@ -675,41 +682,132 @@ export class Bot {
       return this.playBiggestSingle();
     }
 
-    // === 开局策略（>20张）：情况不明对子先行 ===
-    if (this.getPhase() === 'opening' && this.cards.length > 20) {
-      const pair = this.findSecondSmallestPair();
-      if (pair) return pair;
-    }
-
-    // === 助攻角色：主动压小牌，不抢控制权 ===
-    if (this.getRole() === 'supporter' && this.cards.length > 10) {
-      const smallPlay = this.findSmallPlanPlay();
-      if (smallPlay) return smallPlay;
-    }
-
-    // === 联盟濒临走牌：出最小安全牌 ===
+    // === 队友快走牌(≤5张) → 送队友需要的牌型 ===
     if (this.allyNearOut()) {
       const weak = this.findWeakestPlanPlay();
       if (weak) return weak;
     }
 
-    // === 默认：按规划出最小组 ===
-    const planned = this.handPlan.getNextFreePlay(this.cards);
-    if (planned) {
-      // 探路策略：如果规划组是大牌(value>8)，先试试更小的单张/对子
-      // 避免"先出大牌再出小牌"的毛病
-      const plannedHand = getHandType(planned, this.level);
-      if (plannedHand && plannedHand.value > 8) {
-        // 找最小的对子或单张作为探路牌
-        const smallPair = this.findSmallestPair(8);
-        if (smallPair) return smallPair;
-        const smallSingle = this.findSmallestSingle(8);
-        if (smallSingle) return smallSingle;
-      }
-      return planned;
-    }
+    // === 从最小打起：先出最小单张/对子，不先出大牌 ===
+    // 1. 找最小对子（value≤10，避免拆炸弹）
+    const smallPair = this.findSmallestPairForPlay();
+    if (smallPair && this.getPhase() !== 'endgame') return smallPair;
 
+    // 2. 找最小单张（非万能牌、非大牌）
+    const smallSingle = this.findSmallestSingleForPlay();
+    if (smallSingle && this.getPhase() === 'opening') return smallSingle;
+
+    // 3. 三带二（消耗手牌主力）
+    const tripsWithPair = this.findSmallestTripsWithPair();
+    if (tripsWithPair) return tripsWithPair;
+
+    // 4. 顺子/连对（清牌效率高）
+    const sequence = this.findSmallestSequence();
+    if (sequence) return sequence;
+
+    // 5. 最小对子（不限value）
+    if (smallPair) return smallPair;
+
+    // 6. 最小单张
+    if (smallSingle) return smallSingle;
+
+    // 7. 兜底
     return this.decideFreePlayFallback();
+  }
+
+  /** 找最小对子用于自由出牌（不拆4+组，value≤10优先） */
+  private findSmallestPairForPlay(): Card[] | null {
+    const groups = this.groupByRawRank();
+    const pairs: Card[][] = [];
+    for (const [, cs] of groups) {
+      if (cs.length >= 2 && cs.length < 4 && cs[0].rank >= 2 && cs[0].rank <= Rank.Ace) {
+        pairs.push(cs.slice(0, 2));
+      }
+    }
+    if (pairs.length === 0) return null;
+    pairs.sort((a, b) => getLogicValue(a[0].rank, this.level) - getLogicValue(b[0].rank, this.level));
+    return pairs[0];
+  }
+
+  /** 找最小单张用于自由出牌（非万能牌，value≤10优先） */
+  private findSmallestSingleForPlay(): Card[] | null {
+    const sorted = [...this.cards].sort(
+      (a, b) => getLogicValue(a.rank, this.level) - getLogicValue(b.rank, this.level)
+    );
+    for (const c of sorted) {
+      if (c.isWild) continue;
+      const groupSize = this.countSameRank(c.rank);
+      if (groupSize >= 4) continue; // 不拆炸弹
+      const val = getLogicValue(c.rank, this.level);
+      if (val <= 10) return [c];
+    }
+    // 没有小单张，退而求其次
+    for (const c of sorted) {
+      if (c.isWild) continue;
+      const groupSize = this.countSameRank(c.rank);
+      if (groupSize >= 4) continue;
+      return [c];
+    }
+    return null;
+  }
+
+  /** 找最小三带二 */
+  private findSmallestTripsWithPair(): Card[] | null {
+    const groups = this.groupByRawRank();
+    const trips: Card[][] = [];
+    for (const [, cs] of groups) {
+      if (cs.length >= 3 && cs.length < 5 && cs[0].rank >= 2 && cs[0].rank <= Rank.Ace) {
+        trips.push(cs.slice(0, 3));
+      }
+    }
+    if (trips.length === 0) return null;
+    trips.sort((a, b) => getLogicValue(a[0].rank, this.level) - getLogicValue(b[0].rank, this.level));
+    for (const trip of trips) {
+      const pair = this.findPairExcluding(trip);
+      if (pair) return [...trip, ...pair];
+    }
+    return null;
+  }
+
+  /** 找最小顺子或连对 */
+  private findSmallestSequence(): Card[] | null {
+    const available = new Map<string, Card[]>();
+    for (const c of this.cards) {
+      const key = c.suit + ':' + c.rank;
+      if (!available.has(key)) available.set(key, []);
+      available.get(key)!.push(c);
+    }
+    // 从规划组中找最小的顺子/连对
+    const sequences = this.handPlan.groups.filter(g => {
+      const hand = getHandType(g.cards, this.level);
+      return hand && (hand.type === HandType.Straight || hand.type === HandType.Tube);
+    });
+    if (sequences.length === 0) return null;
+    sequences.sort((a, b) => {
+      const ha = getHandType(a.cards, this.level);
+      const hb = getHandType(b.cards, this.level);
+      return (ha?.value || 0) - (hb?.value || 0);
+    });
+    // 验证牌是否可用
+    for (const g of sequences) {
+      const needed = new Map<string, number>();
+      for (const c of g.cards) {
+        const key = c.suit + ':' + c.rank;
+        needed.set(key, (needed.get(key) || 0) + 1);
+      }
+      let ok = true;
+      for (const [key, count] of needed) {
+        if ((available.get(key)?.length || 0) < count) { ok = false; break; }
+      }
+      if (ok) {
+        const result: Card[] = [];
+        for (const [key, count] of needed) {
+          for (let i = 0; i < count; i++) result.push(available.get(key)![i]);
+        }
+        return result;
+      }
+    }
+    return null;
   }
 
   /** 找非单张的最优出牌 */
@@ -740,29 +838,6 @@ export class Bot {
       if (getLogicValue(c.rank, this.level) > getLogicValue(best.rank, this.level)) best = c;
     }
     return [best];
-  }
-
-  /** 找最小的对子（value < threshold），用于探路 */
-  private findSmallestPair(thresholdValue: number): Card[] | null {
-    const pairs = this.getGroups(2);
-    pairs.sort((a, b) => getLogicValue(a[0].rank, this.level) - getLogicValue(b[0].rank, this.level));
-    for (const p of pairs) {
-      const val = getLogicValue(p[0].rank, this.level);
-      if (val < thresholdValue) return p;
-    }
-    return null;
-  }
-
-  /** 找最小的单张（value < threshold），用于探路 */
-  private findSmallestSingle(thresholdValue: number): Card[] | null {
-    const sorted = [...this.cards].sort(
-      (a, b) => getLogicValue(a.rank, this.level) - getLogicValue(b.rank, this.level)
-    );
-    for (const c of sorted) {
-      const val = getLogicValue(c.rank, this.level);
-      if (val < thresholdValue && !c.isWild) return [c];
-    }
-    return null;
   }
 
   /** 倒数第二大对子（开局：出第二小的对子，不暴露最弱牌） */
@@ -880,38 +955,57 @@ export class Bot {
   private decideAllyFollow(target: Hand, lastPlayerIndex: number): Card[] | null {
     const partner = this.partnerIdx();
     if (lastPlayerIndex === partner) {
-      // 如果队友出最后一张/一把走牌（头游），不压
+      // 队友出最后一手走牌 → 不压
       if (this.handsInfo[partner] <= target.cards.length) return null;
 
-      // 无论队友剩几张，只要 Bot 有比队友牌更小的同类型牌，就顺牌过
-      // 帮队友抬牌，不要让对手轻松接牌
-      const beats = this.findAllBeatsPreservingPlan(target);
-      if (beats.length > 0) {
-        // 队友出小牌(value≤11)且Bot有很小的牌 → 顺一道
-        if (target.value <= 11) {
-          // 找最小的跟牌
-          const smallest = this.pickSmallestBeat(beats, target);
-          if (smallest) return smallest;
+      // 队友出小牌(value≤11) → 顺牌过，帮队友抬牌
+      if (target.value <= 11) {
+        const beats = this.findAllBeatsPreservingPlan(target);
+        if (beats.length > 0) {
+          return this.pickSmallestBeat(beats, target);
         }
-        // 队友手里没剩几张了 → 用最小牌压，减少对手接牌机会
-        if (this.handsInfo[partner] <= 5) {
-          const smallest = this.pickSmallestBeat(beats, target);
-          if (smallest) return smallest;
+      }
+
+      // 队友快走牌(≤5张) → 用最小牌压，减少对手接牌机会
+      if (this.handsInfo[partner] <= 5) {
+        const beats = this.findAllBeatsPreservingPlan(target);
+        if (beats.length > 0) {
+          return this.pickSmallestBeat(beats, target);
+        }
+        // 拆牌也要压
+        const allBeats = this.findAllBeats(target);
+        if (allBeats.length > 0) {
+          return this.pickSmallestBeat(allBeats, target);
         }
       }
 
       // 队友牌多且打大牌(value>11) → 不压，让队友继续出
       return null;
     }
-    // 上家是队友出的牌（很少见），不压
+    // 上家是队友（非对门），不压
     return null;
   }
 
   private decideEnemyFollow(target: Hand, lastPlayerIndex: number): Card[] | null {
     const nextSeat = (this.seatIndex + 1) % 4;
     const nextCards = this.handsInfo[nextSeat];
-    const needBlock = this.isAlly(nextSeat) ? false : (nextCards > 7 ? false : true);
+    const enemyCards = this.handsInfo[lastPlayerIndex];
+    const myCards = this.cards.length;
+    const isAllyNext = this.isAlly(nextSeat);
+
+    // 枪不打四：对家剩4张，不是炸弹就不炸
+    // 对家剩8张：不炸（三套牌炸不完）
+    // 这些在 decideBomb 里处理，这里跳过
+
+    // 下家敌人濒临走牌 → 阻断优先级高
+    const needBlock = !isAllyNext && nextCards <= 7;
     const blockUrgency = needBlock ? (nextCards <= 2 ? 3 : nextCards <= 5 ? 2 : 1) : 0;
+
+    // 逢五出对：下家敌人剩5张时，如果能出对子压，优先压
+    if (!isAllyNext && nextCards === 5 && target.type !== HandType.Pair) {
+      // 不接非对子，等下家出对子时再压
+      // 但如果自己也能出同类型小牌压过，还是要压
+    }
 
     // 先看规划组
     const planBeat = this.findPlanBeat(target);
@@ -937,6 +1031,11 @@ export class Bot {
 
     // 最后才考虑炸弹
     if (blockUrgency >= 2) {
+      return this.decideBomb(target, lastPlayerIndex);
+    }
+
+    // 自己快走牌(≤5张)且有炸弹 → 炸了收尾
+    if (myCards <= 5 && enemyCards <= 10) {
       return this.decideBomb(target, lastPlayerIndex);
     }
 
@@ -1131,10 +1230,7 @@ export class Bot {
     if (isBomb) {
       // 自己牌多且对方牌也多 → 不浪费对炸
       if (myCards > 10 && enemyCards > 5) return null;
-      // 对方出的是4张炸，且我方只剩1个4张炸 → 保留（对方可能还有）
-      if (target.type === HandType.Bomb && target.bombCount === 4 && myCards > 8 && this.countMyBombs() <= 1) {
-        return null;
-      }
+      // 否则找更大的炸
       return this.findBomb(target);
     }
 
