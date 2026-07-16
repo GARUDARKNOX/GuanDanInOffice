@@ -357,19 +357,19 @@ class HandPlan {
     return result;
   }
 
-  /** 评分函数：分值=牌数×10 + 类型分 + 价值/5 + 剩余整合度奖励 */
+  /** 评分函数：分值=牌数×10 + 类型分 + 价值/5 + 剩余整合度奖励 - 剩余手数惩罚 */
   private scoreGroup(grp: { cards: Card[]; type: HandType; value: number; bombCount?: number }, remaining: Card[], level: number): number {
     let score = grp.cards.length * 10;
     switch (grp.type) {
-      case HandType.TripsWithPair: score += 25; break;
+      case HandType.TripsWithPair: score += 30; break;
       case HandType.Trips:         score += 15; break;
-      case HandType.Tube:          score += 18; break;
-      case HandType.Straight:      score += 12; break;
+      case HandType.Tube:          score += 15; break;
+      case HandType.Straight:      score += 22; break;
+      case HandType.Plate:         score += 20; break;
       case HandType.Pair:          score += 5;  break;
       case HandType.Single:        score += 0;  break;
-      case HandType.Bomb:          score += 0;  break; // 炸弹靠value和卡牌数量自然排在后面
+      case HandType.Bomb:          score += 0;  break;
     }
-    // 大牌优先（自由出牌时强组更适合开局）
     score += grp.value / 5;
     // 惩罚：三带二若对子来源于三条组（拆了三条），扣分减少散牌
     if (grp.type === HandType.TripsWithPair) {
@@ -377,13 +377,37 @@ class HandPlan {
       const pairCnt = remaining.filter(c => c.rank === pairRank).length;
       if (pairCnt === 3) score -= 12;
     }
-    // 出完这组后剩余牌还能组更多三条 => 加分
+    // 出完这组后评估剩余牌
     const after = remaining.filter(c => !grp.cards.some(gc => gc.id === c.id));
     const ag = this.groupCards(after);
+    // 剩余三条数奖励
     let tripsLeft = 0;
     for (const [, cs] of ag) if (cs.length >= 3) tripsLeft++;
     score += tripsLeft * 2;
+    // 剩余单张数惩罚（每多一张散单张扣分）
+    let singlesLeft = 0;
+    for (const [, cs] of ag) if (cs.length === 1) singlesLeft++;
+    if (singlesLeft > tripsLeft) {
+      score -= (singlesLeft - tripsLeft) * 12;
+    }
+    // 剩余手数估计（越少越好）
+    const estimatedHands = this.estimateHands(after);
+    score -= estimatedHands * 3;
     return score;
+  }
+
+  /** 粗略估计剩余牌需要几手出完 */
+  private estimateHands(cards: Card[]): number {
+    if (cards.length === 0) return 0;
+    const g = this.groupCards(cards);
+    let hands = 0;
+    for (const [, cs] of g) {
+      if (cs.length >= 4) { hands++; continue; } // 炸弹
+      if (cs.length === 3) { hands++; continue; } // 三条
+      if (cs.length === 2) { hands++; continue; } // 对子
+      if (cs.length === 1) { hands++; continue; } // 单张
+    }
+    return hands;
   }
 
   getNextFreePlay(cardsInHand: Card[]): Card[] | null {
