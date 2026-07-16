@@ -92,6 +92,8 @@ class HandPlan {
   groups: { cards: Card[]; type: HandType; value: number }[] = [];
   private bombIndices: Set<number> = new Set();
 
+  getBombIndices(): Set<number> { return this.bombIndices; }
+
   constructor(cards: Card[], level: number) {
     this.build(cards, level);
   }
@@ -575,6 +577,17 @@ export class Bot {
   handsInfo: number[];
   tracker: CardTracker;
   private handPlan: HandPlan;
+
+  /** 返回当前手牌的最优分组方案（供前端自动组牌使用） */
+  getHandGroups(): { cards: Card[]; type: HandType; value: number; isBomb: boolean }[] {
+    const bombIdxs = this.handPlan.getBombIndices();
+    return this.handPlan.groups.map((g, i) => ({
+      cards: g.cards,
+      type: g.type,
+      value: g.value,
+      isBomb: bombIdxs.has(i)
+    }));
+  }
 
   constructor(cards: Card[], level: number, seatIndex: number = 0, handsInfo: number[] = [0,0,0,0], tracker?: CardTracker) {
     this.cards = sortCards(cards, level);

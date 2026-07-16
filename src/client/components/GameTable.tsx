@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Card as CardType, Rank, Suit, GameMode, SkillCard, SkillCardType, Hand } from '../../shared/types';
+import { Card as CardType, Rank, Suit, GameMode, SkillCard, SkillCardType, Hand, HandType } from '../../shared/types';
 import { Bot } from '../../shared/bot';
 import { Card } from './Card';
 import { GameState, RoomState } from '../useGame';
@@ -244,6 +244,48 @@ export const GameTable: React.FC<Props> = ({
       } else {
           setSelectedCardIds([]);
       }
+  };
+  
+  // === 自动组牌 ===
+  const [arrangeGroups, setArrangeGroups] = useState<{ cards: CardType[]; type: HandType; value: number; isBomb: boolean }[] | null>(null);
+  const [showArrange, setShowArrange] = useState(false);
+
+  const handleAutoArrange = () => {
+      if (!gameState || sortedHand.length === 0) return;
+      const handsInfo = gameState.hands.map(h => Array.isArray(h) ? h.length : h);
+      const bot = new Bot(sortedHand, gameState.level, mySeat, handsInfo);
+      const groups = bot.getHandGroups();
+      setArrangeGroups(groups as any);
+      setShowArrange(!showArrange);
+  };
+
+  // 每次手牌变化时清除组牌显示
+  useEffect(() => {
+      setShowArrange(false);
+      setArrangeGroups(null);
+  }, [myHandOriginal]);
+
+  // 获取某张牌所属的组索引（用于高亮）
+  const getCardGroupIndex = (cardId: string): number => {
+      if (!arrangeGroups || !showArrange) return -1;
+      for (let i = 0; i < arrangeGroups.length; i++) {
+          if (arrangeGroups[i].cards.some(c => c.id === cardId)) return i;
+      }
+      return -1;
+  };
+
+  // 组牌分组颜色（循环色系）
+  const groupColors = [
+      'ring-2 ring-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.4)]',
+      'ring-2 ring-green-400 shadow-[0_0_8px_rgba(74,222,128,0.4)]',
+      'ring-2 ring-purple-400 shadow-[0_0_8px_rgba(192,132,252,0.4)]',
+      'ring-2 ring-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.4)]',
+      'ring-2 ring-pink-400 shadow-[0_0_8px_rgba(244,114,182,0.4)]',
+      'ring-2 ring-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.4)]',
+  ];
+
+  const groupTypeNames: { [key: number]: string } = {
+      0: '单张', 1: '对子', 2: '三张', 3: '三带二', 4: '顺子', 5: '连对', 6: '钢板', 7: '炸弹', 8: '同花顺', 9: '天王炸',
   };
   
   const handleTributeAction = () => {
@@ -634,6 +676,12 @@ export const GameTable: React.FC<Props> = ({
                       提示
                     </button>
                     <button 
+                      onClick={handleAutoArrange}
+                      className={`px-4 py-2 rounded-full font-bold shadow-lg mr-4 ${showArrange ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-teal-500 hover:bg-teal-600 text-white'}`}
+                    >
+                      {showArrange ? '隐藏组牌' : '自动组牌'}
+                    </button>
+                    <button 
                       onClick={handlePlay} 
                       disabled={selectedCardIds.length === 0}
                       className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded-full font-bold shadow-lg disabled:opacity-50"
@@ -664,20 +712,37 @@ export const GameTable: React.FC<Props> = ({
             )}
         </div>
 
+        {/* 自动组牌分组信息 */}
+        {showArrange && arrangeGroups && arrangeGroups.length > 0 && (
+            <div className="mb-4 pointer-events-auto flex flex-wrap gap-2 justify-center">
+                {arrangeGroups.map((g, i) => (
+                    <div key={i} className={`px-3 py-1 rounded-full text-xs font-bold ${g.isBomb ? 'bg-red-600/80 text-white' : 'bg-white/10 text-white'}`}>
+                        <span className={`inline-block w-2 h-2 rounded-full mr-1 ${groupColors[i % groupColors.length].includes('cyan') ? 'bg-cyan-400' : groupColors[i % groupColors.length].includes('green') ? 'bg-green-400' : groupColors[i % groupColors.length].includes('purple') ? 'bg-purple-400' : groupColors[i % groupColors.length].includes('orange') ? 'bg-orange-400' : groupColors[i % groupColors.length].includes('pink') ? 'bg-pink-400' : 'bg-blue-400'}`}></span>
+                        {groupTypeNames[g.type] || '?'} ({g.cards.length}张)
+                    </div>
+                ))}
+            </div>
+        )}
+
         {/* Hand Area - Compact Grid */}
         <div className={`px-8 flex items-end justify-center pointer-events-auto transition-all duration-300 ${viewMode === 'normal' ? 'h-32 -space-x-8' : 'h-64 gap-1'}`}>
           {viewMode === 'normal' ? (
               // Normal View
-              sortedHand.map((card: CardType) => (
-                <Card 
-                  key={card.id} 
-                  card={card} 
-                  selected={selectedCardIds.includes(card.id)}
-                  onClick={() => toggleSelect(card.id)}
-                  isHighlighted={highlightedCardIds.has(card.id)}
-                  animateEnter={dealVersion > 0}
-                />
-              ))
+              sortedHand.map((card: CardType) => {
+                  const groupIdx = getCardGroupIndex(card.id);
+                  const groupClass = groupIdx >= 0 ? groupColors[groupIdx % groupColors.length] : '';
+                  return (
+                    <div key={card.id} className={groupClass ? `rounded ${groupClass}` : ''}>
+                      <Card 
+                        card={card} 
+                        selected={selectedCardIds.includes(card.id)}
+                        onClick={() => toggleSelect(card.id)}
+                        isHighlighted={highlightedCardIds.has(card.id)}
+                        animateEnter={dealVersion > 0}
+                      />
+                    </div>
+                  );
+              })
           ) : (
               // Stacked Matrix View (Compact columns)
               getStackedMatrix().map((col, cIdx) => (
