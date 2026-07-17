@@ -790,65 +790,150 @@ export class Bot {
     return partnerCards <= 8 ? 'supporter' : 'attacker';
   }
 
-  // ==================== 自由出牌（从最小打起） ====================
+  // ==================== 自由出牌（控制发牌权） ====================
 
   private decideFreePlay(): Card[] {
     // 能一把走完
     const allOut = this.tryPlayAll();
     if (allOut) return allOut;
 
-    // === 终局保护：下家敌人剩1张 → 绝对不出单张 ===
+    // === 终局保护：下家敌人剩1张 -> 绝对不出单张 ===
     if (this.nextEnemyHasOne() && this.cards.length > 1) {
       const nonSingle = this.findBestNonSingle();
       if (nonSingle) return nonSingle;
       return this.playBiggestSingle();
     }
 
-    // === 队友快走牌(≤5张) → 送队友需要的牌型 ===
+    // === 队友快走牌(≤5张) -> 送队友需要的牌型 ===
     if (this.allyNearOut()) {
       const weak = this.findWeakestPlanPlay();
       if (weak) return weak;
     }
 
-    // === 从最小打起，但轮换牌型避免被预判 ===
-    // 记录最近出过的牌型，避免连续出同类型
-    const lastPlayType = this.lastFreePlayType;
+    // === 核心策略：出能收回发牌权的牌 ===
+    const controllingPlay = this.findControllingPlay();
+    if (controllingPlay) return controllingPlay;
 
-    // 如果上轮出了对子，这轮优先出单张或三带二
-    if (lastPlayType !== 'Pair') {
-      // 1. 找最小对子（value≤10，避免拆炸弹）
-      const smallPair = this.findSmallestPairForPlay();
-      if (smallPair && this.getPhase() !== 'endgame') return smallPair;
-    }
-
-    // 2. 找最小单张（非万能牌、非大牌）
-    if (lastPlayType !== 'Single') {
-      const smallSingle = this.findSmallestSingleForPlay();
-      if (smallSingle && this.getPhase() === 'opening') return smallSingle;
-    }
-
-    // 3. 三带二（消耗手牌主力）
-    if (lastPlayType !== 'TripsWithPair') {
-      const tripsWithPair = this.findSmallestTripsWithPair();
-      if (tripsWithPair) return tripsWithPair;
-    }
-
-    // 4. 顺子/连对（清牌效率高）
-    if (lastPlayType !== 'Sequence') {
-      const sequence = this.findSmallestSequence();
-      if (sequence) return sequence;
-    }
-
-    // 5. 最小对子（不限value）
-    const smallPair = this.findSmallestPairForPlay();
-    if (smallPair) return smallPair;
-
-    // 6. 最小单张
-    const smallSingle = this.findSmallestSingleForPlay();
-    if (smallSingle) return smallSingle;
-
-    // 7. 兜底
+    // === 兜底 ===
     return this.decideFreePlayFallback();
+  }
+
+  /**
+   * 找一手能控制发牌权的牌。
+   * 优先级：
+   * 1. 出小牌+手里有同类型大牌能收回
+   * 2. 出对手接不了的牌型（已出完的牌型）
+   * 3. 出队友能接的牌型
+   * 4. 出最大的单张/对子封锁
+   */
+  private findControllingPlay(): Card[] | null {
+    const myGroups = this.handPlan.groups;
+    const nonBombGroups = myGroups.filter((_, i) => !this.handPlan.getBombIndices().has(i));
+
+    // 按牌型分组，找"有大小两组"的类型（出小留大收回）
+    const typeMap = new Map<HandType, { cards: Card[]; value: number; index: number }[]>();
+    for (let i = 0; i < nonBombGroups.length; i++) {
+      const g = nonBombGroups[i];
+      const hand = getHandType(g.cards, this.level);
+      if (!hand) continue;
+      if (!typeMap.has(hand.type)) typeMap.set(hand.type, []);
+      typeMap.get(hand.type)!.push({ cards: g.cards, value: hand.value, index: i });
+    }
+
+    // 1. 找有大小两组的同类型 -> 出小的，大的留着收回
+    for (const [type, groups] of typeMap) {
+      if (groups.length >= 2) {
+        groups.sort((a, b) => a.value - b.value);
+        const small = groups[0];
+        // 验证牌还在手里
+        if (this.canPlay(small.cards)) return small.cards;
+      }
+    }
+
+    // 2. 找对手接不了的牌型（通过tracker判断）
+    // 出单张时检查：对手还有没有更大的单张？
+    const mySingles = nonBombGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && h.type === HandType.Single;
+    });
+    if (mySingles.length > 0) {
+      // 找一张对手大概率接不了的单张
+      const sortedSingles = mySingles.sort((a, b) => {
+        const va = getLogicValue(a.cards[0].rank, this.level);
+        const vb = getLogicValue(b.cards[0].rank, this.level);
+        return vb - va; // 从大到小
+      });
+      // 如果我最大的单张是A/级牌/王，出小的探路，大牌留着收回
+      for (const s of sortedSingles) {
+        const val = getLogicValue(s.cards[0].rank, this.level);
+        // 大牌(>=A=14)留着收回，出小牌
+        if (val >= 14) continue;
+        if (this.canPlay(s.cards)) return s.cards;
+      }
+      // 只剩大牌了，出最小的
+      const smallest = sortedSingles[sortedSingles.length - 1];
+      if (this.canPlay(smallest.cards)) return smallest.cards;
+    }
+
+    // 3. 找队友可能能接的牌型（出过同类）
+    // 队友之前出过对子 -> 出小对子让队友接
+    // 这里简化：如果有对子，出最小的
+    const myPairs = nonBombGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && h.type === HandType.Pair;
+    });
+    if (myPairs.length > 0) {
+      myPairs.sort((a, b) => {
+        const ha = getHandType(a.cards, this.level);
+        const hb = getHandType(b.cards, this.level);
+        return (ha?.value || 0) - (hb?.value || 0);
+      });
+      if (this.canPlay(myPairs[0].cards)) return myPairs[0].cards;
+    }
+
+    // 4. 三带二（消耗手牌）
+    const myTripsWithPair = nonBombGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && h.type === HandType.TripsWithPair;
+    });
+    if (myTripsWithPair.length > 0) {
+      myTripsWithPair.sort((a, b) => {
+        const ha = getHandType(a.cards, this.level);
+        const hb = getHandType(b.cards, this.level);
+        return (ha?.value || 0) - (hb?.value || 0);
+      });
+      if (this.canPlay(myTripsWithPair[0].cards)) return myTripsWithPair[0].cards;
+    }
+
+    // 5. 顺子/连对
+    const mySequences = nonBombGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && (h.type === HandType.Straight || h.type === HandType.Tube);
+    });
+    if (mySequences.length > 0) {
+      mySequences.sort((a, b) => {
+        const ha = getHandType(a.cards, this.level);
+        const hb = getHandType(b.cards, this.level);
+        return (ha?.value || 0) - (hb?.value || 0);
+      });
+      if (this.canPlay(mySequences[0].cards)) return mySequences[0].cards;
+    }
+
+    // 6. 最后出最小单张
+    for (const g of nonBombGroups) {
+      const h = getHandType(g.cards, this.level);
+      if (h && h.type === HandType.Single && this.canPlay(g.cards)) {
+        return g.cards;
+      }
+    }
+
+    return null;
+  }
+
+  /** 验证一组牌是否都在当前手牌中 */
+  private canPlay(cards: Card[]): boolean {
+    const handIds = new Set(this.cards.map(c => c.id));
+    return cards.every(c => handIds.has(c.id));
   }
 
   /** 找最小对子用于自由出牌（不拆4+组，value≤10优先） */
