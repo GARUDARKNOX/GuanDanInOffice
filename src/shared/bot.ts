@@ -103,13 +103,14 @@ class HandPlan {
     this.groups = [];
     this.bombIndices.clear();
 
-    // 1. 提取4+同rank真炸弹（排除级牌，级牌留给plan做配牌）
+    // 1. 提取4+同rank真炸弹（不跳过级牌，4张级牌也是炸弹）
     const groups = this.groupCards(remaining);
     const bombGroups: { cards: Card[]; type: HandType; value: number }[] = [];
     for (const [r, cs] of groups) {
-      if (r === level || r === Rank.SmallJoker || r === Rank.BigJoker) continue;
-      if (cs.length >= 4) {
-        const bombCards = cs.slice(0, 4);
+      if (r === Rank.SmallJoker || r === Rank.BigJoker) continue;
+      const nonWild = cs.filter(c => !c.isWild);
+      if (nonWild.length >= 4) {
+        const bombCards = nonWild.slice(0, 4);
         const hand = getHandType(bombCards, level);
         if (hand && hand.type === HandType.Bomb) {
           bombGroups.push({ cards: bombCards, type: HandType.Bomb, value: hand.value });
@@ -277,15 +278,23 @@ class HandPlan {
       }
     }
 
-    // 2. 炸弹：3张同rank + 1张万能牌
+    // 2. 炸弹：3张同rank + 1张万能牌（仅配强炸value>=7，不配弱炸浪费万能牌）
     if (wilds().length > 0) {
+      const existingBombRanks = new Set<number>();
+      // 已经提取的炸弹rank不再配（避免重复）
+      for (const g of result) {
+        if (g.type === HandType.Bomb) {
+          g.cards.forEach(c => { if (!c.isWild) existingBombRanks.add(c.rank); });
+        }
+      }
       const g = this.groupCards(remaining.filter(c => !usedIds.has(c.id)));
       for (const [r, cs] of g) {
         if (wilds().length === 0) break;
-        if (r === level || r === Rank.SmallJoker || r === Rank.BigJoker) continue;
-        if (r < 2 || r > 14) continue;
+        if (r === Rank.SmallJoker || r === Rank.BigJoker) continue;
+        if (r < 7 || r > 14) continue; // 只配7以上的炸弹
+        if (existingBombRanks.has(r)) continue; // 已有同rank炸弹不重复配
         const normals = cs.filter(c => !c.isWild);
-        if (normals.length >= 3) {
+        if (normals.length >= 3 && normals.length < 4) { // 正好3张（4张已被提取为真炸）
           const bombCards = [...normals.slice(0, 3), wilds()[0]];
           const hand = getHandType(bombCards, level);
           if (hand && hand.type === HandType.Bomb) {
@@ -665,6 +674,7 @@ export class Bot {
   handsInfo: number[];
   tracker: CardTracker;
   private handPlan: HandPlan;
+  private lastFreePlayType: 'None' | 'Pair' | 'Single' | 'TripsWithPair' | 'Sequence' = 'None';
 
   /** 返回当前手牌的最优分组方案（供前端自动组牌使用） */
   getHandGroups(): { cards: Card[]; type: HandType; value: number; isBomb: boolean }[] {
@@ -733,6 +743,17 @@ export class Bot {
       result = null;
     }
     if (result) {
+      // 记录自由出牌的牌型（用于轮换）
+      if (!target) {
+        const hand = getHandType(result, this.level);
+        if (hand) {
+          if (hand.type === HandType.Pair) this.lastFreePlayType = 'Pair';
+          else if (hand.type === HandType.Single) this.lastFreePlayType = 'Single';
+          else if (hand.type === HandType.TripsWithPair) this.lastFreePlayType = 'TripsWithPair';
+          else if (hand.type === HandType.Straight || hand.type === HandType.Tube) this.lastFreePlayType = 'Sequence';
+          else this.lastFreePlayType = 'None';
+        }
+      }
       this.handPlan.rebuild(this.cards, this.level);
     }
     return result;
@@ -789,27 +810,41 @@ export class Bot {
       if (weak) return weak;
     }
 
-    // === 从最小打起：先出最小单张/对子，不先出大牌 ===
-    // 1. 找最小对子（value≤10，避免拆炸弹）
-    const smallPair = this.findSmallestPairForPlay();
-    if (smallPair && this.getPhase() !== 'endgame') return smallPair;
+    // === 从最小打起，但轮换牌型避免被预判 ===
+    // 记录最近出过的牌型，避免连续出同类型
+    const lastPlayType = this.lastFreePlayType;
+
+    // 如果上轮出了对子，这轮优先出单张或三带二
+    if (lastPlayType !== 'Pair') {
+      // 1. 找最小对子（value≤10，避免拆炸弹）
+      const smallPair = this.findSmallestPairForPlay();
+      if (smallPair && this.getPhase() !== 'endgame') return smallPair;
+    }
 
     // 2. 找最小单张（非万能牌、非大牌）
-    const smallSingle = this.findSmallestSingleForPlay();
-    if (smallSingle && this.getPhase() === 'opening') return smallSingle;
+    if (lastPlayType !== 'Single') {
+      const smallSingle = this.findSmallestSingleForPlay();
+      if (smallSingle && this.getPhase() === 'opening') return smallSingle;
+    }
 
     // 3. 三带二（消耗手牌主力）
-    const tripsWithPair = this.findSmallestTripsWithPair();
-    if (tripsWithPair) return tripsWithPair;
+    if (lastPlayType !== 'TripsWithPair') {
+      const tripsWithPair = this.findSmallestTripsWithPair();
+      if (tripsWithPair) return tripsWithPair;
+    }
 
     // 4. 顺子/连对（清牌效率高）
-    const sequence = this.findSmallestSequence();
-    if (sequence) return sequence;
+    if (lastPlayType !== 'Sequence') {
+      const sequence = this.findSmallestSequence();
+      if (sequence) return sequence;
+    }
 
     // 5. 最小对子（不限value）
+    const smallPair = this.findSmallestPairForPlay();
     if (smallPair) return smallPair;
 
     // 6. 最小单张
+    const smallSingle = this.findSmallestSingleForPlay();
     if (smallSingle) return smallSingle;
 
     // 7. 兜底
