@@ -328,12 +328,13 @@ class HandPlan {
     const result: { cards: Card[]; type: HandType; value: number }[] = [];
     const g = this.groupCards(cards);
 
-    // 三带二：每条三条配每个可用纯对子（评分选最优，避免拆三条组）
+    // 三带二：每条三条配每个可用纯对子（跳过级牌，级牌留作控制牌）
     for (const [r, cs] of g) {
       if (r < 2 || r > 14 || cs.length < 3) continue;
       const trip = cs.slice(0, 3);
       for (const [pr, pcs] of g) {
         if (pr === r || pr < 2 || pr > 14 || pcs.length < 2) continue;
+        if (pr === level) continue; // 级牌不当对子配，留作控制牌
         const pair = pcs.slice(0, 2);
         const combined = [...trip, ...pair];
         const hand = getHandType(combined, level);
