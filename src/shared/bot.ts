@@ -132,6 +132,12 @@ class HandPlan {
       bombGroups.push(g);
     }
 
+    // 1.6 万能牌优先配同花顺和炸弹（逢人配不浪费在散牌上）
+    const wildGroups = this.extractWildCardBombs(remaining, level);
+    for (const g of wildGroups) {
+      bombGroups.push(g);
+    }
+
     // 2. 逐轮评分选最优组（剩余非炸弹牌）
     while (remaining.length > 0) {
       const best = this.findBestGroup(remaining, level);
@@ -210,6 +216,82 @@ class HandPlan {
           const wheel = [ace, ...low] as Card[];
           result.push({ cards: wheel, type: HandType.StraightFlush, value: 5 });
           wheel.forEach(c => usedIds.add(c.id));
+        }
+      }
+    }
+
+    this.removeCards(remaining, Array.from(usedIds));
+    return result;
+  }
+
+  /**
+   * 万能牌优先配同花顺（1张补缺）和炸弹（3+1）。
+   * 简洁安全：只用getHandType验证，不用getAllPossibleHandTypes。
+   */
+  private extractWildCardBombs(remaining: Card[], level: number): { cards: Card[]; type: HandType; value: number }[] {
+    const result: { cards: Card[]; type: HandType; value: number }[] = [];
+    const usedIds = new Set<string>();
+    const wilds = () => remaining.filter(c => c.isWild && !usedIds.has(c.id));
+
+    // 1. 同花顺：4张同花连续 + 1张万能牌补缺
+    for (const s of [Suit.Spades, Suit.Hearts, Suit.Clubs, Suit.Diamonds]) {
+      if (wilds().length === 0) break;
+      const suitCards = remaining
+        .filter(c => c.suit === s && !c.isWild && c.rank <= Rank.Ace && !usedIds.has(c.id))
+        .sort((a, b) => a.rank - b.rank);
+
+      // 找4张连续的窗口
+      for (let i = 0; i <= suitCards.length - 4 && wilds().length > 0; i++) {
+        const w = suitCards.slice(i, i + 4);
+        if (!isConsecutive(w.map(c => c.rank))) continue;
+
+        // 尝试在前后补一张万能牌组成5张同花顺
+        const wCard = wilds()[0];
+        const candidates = [wCard, wCard]; // 只试一个万能牌
+        for (const wc of candidates) {
+          const five = [...w, wc];
+          const hand = getHandType(five, level);
+          if (hand && hand.type === HandType.StraightFlush) {
+            result.push({ cards: five, type: HandType.StraightFlush, value: hand.value });
+            five.forEach(c => usedIds.add(c.id));
+            break;
+          }
+        }
+      }
+
+      // 也试 A-2-3-4 + 万能牌
+      if (wilds().length > 0) {
+        const lowRanks = [2, 3, 4];
+        const lowCards = lowRanks.map(r =>
+          remaining.find(c => c.suit === s && c.rank === r && !usedIds.has(c.id))
+        );
+        const ace = remaining.find(c => c.suit === s && c.rank === 14 && !usedIds.has(c.id));
+        if (lowCards.every(c => c) && ace && wilds().length > 0) {
+          const five = [ace, ...lowCards, wilds()[0]] as Card[];
+          const hand = getHandType(five, level);
+          if (hand && hand.type === HandType.StraightFlush) {
+            result.push({ cards: five, type: HandType.StraightFlush, value: hand.value });
+            five.forEach(c => usedIds.add(c.id));
+          }
+        }
+      }
+    }
+
+    // 2. 炸弹：3张同rank + 1张万能牌
+    if (wilds().length > 0) {
+      const g = this.groupCards(remaining.filter(c => !usedIds.has(c.id)));
+      for (const [r, cs] of g) {
+        if (wilds().length === 0) break;
+        if (r === level || r === Rank.SmallJoker || r === Rank.BigJoker) continue;
+        if (r < 2 || r > 14) continue;
+        const normals = cs.filter(c => !c.isWild);
+        if (normals.length >= 3) {
+          const bombCards = [...normals.slice(0, 3), wilds()[0]];
+          const hand = getHandType(bombCards, level);
+          if (hand && hand.type === HandType.Bomb) {
+            result.push({ cards: bombCards, type: HandType.Bomb, value: hand.value });
+            bombCards.forEach(c => usedIds.add(c.id));
+          }
         }
       }
     }
