@@ -1449,10 +1449,27 @@ export class Bot {
       if (this.countMyBombs() >= 2) return this.findBomb(target);
     }
 
-    // 炸弹对炸弹：炸回去
+    // 炸弹对炸弹：根据牌力判断是否对炸
     if (isBomb) {
-      // 自己牌多且对方牌也多 → 不浪费对炸
+      const myBombs = this.countMyBombs();
+      const myStrength = this.assessHandStrength();
+      
+      // 自己牌多且对方牌也多 -> 不浪费对炸
       if (myCards > 10 && enemyCards > 5) return null;
+      
+      // 自己只剩1个炸弹且牌还多 -> 不对炸（保留控制力）
+      if (myBombs <= 1 && myCards > 8) return null;
+      
+      // 牌力弱(<=20)且不是终局 -> 不对炸（留炸保命）
+      if (myStrength <= 20 && myCards > 6) return null;
+      
+      // 对方出的是大炸弹(5炸+)且我只有4炸 -> 不对炸（炸不过）
+      if (target.type === HandType.Bomb && (target.bombCount || 4) >= 5 && myBombs <= 1) return null;
+      
+      // 队友牌还多(>10)且我也多 -> 信任队友，不对炸
+      const partnerCards = this.handsInfo[this.partnerIdx()];
+      if (partnerCards > 10 && myCards > 10) return null;
+      
       // 否则找更大的炸
       return this.findBomb(target);
     }
