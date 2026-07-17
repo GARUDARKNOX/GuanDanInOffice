@@ -103,14 +103,15 @@ class HandPlan {
     this.groups = [];
     this.bombIndices.clear();
 
-    // 1. 提取4+同rank真炸弹（不跳过级牌，4张级牌也是炸弹）
+    // 1. 提取5+同rank真炸弹（优先提取最大炸弹，不拆5+/6+为4+2）
     const groups = this.groupCards(remaining);
     const bombGroups: { cards: Card[]; type: HandType; value: number }[] = [];
     for (const [r, cs] of groups) {
       if (r === Rank.SmallJoker || r === Rank.BigJoker) continue;
       const nonWild = cs.filter(c => !c.isWild);
       if (nonWild.length >= 4) {
-        const bombCards = nonWild.slice(0, 4);
+        // 5+张全部作为炸弹，不拆成4+剩余
+        const bombCards = nonWild.slice(0, Math.min(nonWild.length, 8));
         const hand = getHandType(bombCards, level);
         if (hand && hand.type === HandType.Bomb) {
           bombGroups.push({ cards: bombCards, type: HandType.Bomb, value: hand.value });

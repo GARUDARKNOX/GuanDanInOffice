@@ -711,9 +711,9 @@ export const GameTable: React.FC<Props> = ({
             )}
         </div>
 
-        {/* 自动组牌分组信息 */}
+        {/* 自动组牌分组信息 - 放在底部不遮挡牌桌 */}
         {showArrange && arrangeGroups && arrangeGroups.length > 0 && (
-            <div className="mb-4 pointer-events-auto flex flex-wrap gap-2 justify-center max-w-3xl">
+            <div className="mb-2 pointer-events-auto flex flex-wrap gap-1 justify-center max-w-4xl">
                 {arrangeGroups.map((g, i) => {
                     const colorClass = groupColors[i % groupColors.length];
                     const dotColor = colorClass.includes('cyan') ? 'bg-cyan-400' : colorClass.includes('green') ? 'bg-green-400' : colorClass.includes('purple') ? 'bg-purple-400' : colorClass.includes('orange') ? 'bg-orange-400' : colorClass.includes('pink') ? 'bg-pink-400' : 'bg-blue-400';
@@ -730,12 +730,12 @@ export const GameTable: React.FC<Props> = ({
                           onClick={() => {
                             setSelectedCardIds(g.cards.map(c => c.id));
                           }}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:scale-105 transition-transform ${g.isBomb ? 'bg-red-600/80 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                          className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform ${g.isBomb ? 'bg-red-600/80 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
                           title="点击选中这组牌"
                         >
-                            <span className={`inline-block w-2 h-2 rounded-full ${dotColor}`}></span>
+                            <span className={`inline-block w-1.5 h-1.5 rounded-full ${dotColor}`}></span>
                             <span className="opacity-80">{typeName}</span>
-                            <span className="font-mono text-[10px] opacity-60">{cardStr}</span>
+                            <span className="font-mono text-[9px] opacity-60">{cardStr}</span>
                         </div>
                     );
                 })}
