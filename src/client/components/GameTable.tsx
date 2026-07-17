@@ -247,23 +247,20 @@ export const GameTable: React.FC<Props> = ({
   };
   
   // === 自动组牌 ===
-  const [arrangeGroups, setArrangeGroups] = useState<{ cards: CardType[]; type: HandType; value: number; isBomb: boolean }[] | null>(null);
   const [showArrange, setShowArrange] = useState(false);
 
   const handleAutoArrange = () => {
       if (!gameState || sortedHand.length === 0) return;
-      const handsInfo = gameState.hands.map(h => Array.isArray(h) ? h.length : h);
-      const bot = new Bot(sortedHand, gameState.level, mySeat, handsInfo);
-      const groups = bot.getHandGroups();
-      setArrangeGroups(groups as any);
       setShowArrange(!showArrange);
   };
 
-  // 每次手牌变化时清除组牌显示
-  useEffect(() => {
-      setShowArrange(false);
-      setArrangeGroups(null);
-  }, [myHandOriginal]);
+  // showArrange开启时，每次手牌变化自动重新计算组牌
+  const arrangeGroups = React.useMemo(() => {
+      if (!showArrange || !gameState || sortedHand.length === 0) return null;
+      const handsInfo = gameState.hands.map(h => Array.isArray(h) ? h.length : h);
+      const bot = new Bot(sortedHand, gameState.level, mySeat, handsInfo);
+      return bot.getHandGroups();
+  }, [showArrange, sortedHand, gameState?.level]);
 
   // 获取某张牌所属的组索引（用于高亮）
   const getCardGroupIndex = (cardId: string): number => {
