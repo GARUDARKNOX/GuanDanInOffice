@@ -663,18 +663,6 @@ export const GameTable: React.FC<Props> = ({
             {gameState && gameState.currentTurn === mySeat && gameState.phase === 'Playing' && (
                 <div className="flex gap-4">
                     <button 
-                      onClick={toggleViewMode}
-                      className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-full font-bold shadow-lg mr-4"
-                    >
-                      {viewMode === 'normal' ? '切换同花顺视图' : '切换普通视图'}
-                    </button>
-                    <button 
-                      onClick={handleHint}
-                      className="bg-yellow-500 hover:bg-yellow-600 text-black px-4 py-2 rounded-full font-bold shadow-lg mr-4"
-                    >
-                      提示
-                    </button>
-                    <button 
                       onClick={handleAutoArrange}
                       className={`px-4 py-2 rounded-full font-bold shadow-lg mr-4 ${showArrange ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-teal-500 hover:bg-teal-600 text-white'}`}
                     >
