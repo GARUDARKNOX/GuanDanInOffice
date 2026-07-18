@@ -328,13 +328,20 @@ class HandPlan {
     const result: { cards: Card[]; type: HandType; value: number }[] = [];
     const g = this.groupCards(cards);
 
-    // 三带二：每条三条配每个可用纯对子（跳过级牌，级牌留作控制牌）
-    for (const [r, cs] of g) {
-      if (r < 2 || r > 14 || cs.length < 3) continue;
+    // 三带二：小三张配小对子，大对子留着控制
+    // 按三条value升序排列，每条三条优先配比自己小的对子
+    const sortedTrips = Array.from(g.entries())
+      .filter(([r, cs]) => r >= 2 && r <= 14 && cs.length >= 3)
+      .sort((a, b) => getLogicValue(a[0], level) - getLogicValue(b[0], level));
+    
+    for (const [r, cs] of sortedTrips) {
       const trip = cs.slice(0, 3);
-      for (const [pr, pcs] of g) {
-        if (pr === r || pr < 2 || pr > 14 || pcs.length < 2) continue;
-        if (pr === level) continue; // 级牌不当对子配，留作控制牌
+      // 优先配比三条小的对子（小三张配小对子）
+      const sortedPairs = Array.from(g.entries())
+        .filter(([pr, pcs]) => pr !== r && pr >= 2 && pr <= 14 && pr !== level && pcs.length >= 2)
+        .sort((a, b) => getLogicValue(a[0], level) - getLogicValue(b[0], level));
+      
+      for (const [pr, pcs] of sortedPairs) {
         const pair = pcs.slice(0, 2);
         const combined = [...trip, ...pair];
         const hand = getHandType(combined, level);
@@ -454,21 +461,26 @@ class HandPlan {
   private scoreGroup(grp: { cards: Card[]; type: HandType; value: number; bombCount?: number }, remaining: Card[], level: number): number {
     let score = grp.cards.length * 10;
     switch (grp.type) {
-      case HandType.TripsWithPair: score += 30; break;
-      case HandType.Trips:         score += 15; break;
+      case HandType.TripsWithPair: score += 25; break;
+      case HandType.Trips:         score += 12; break;
       case HandType.Tube:          score += 15; break;
-      case HandType.Straight:      score += 22; break;
+      case HandType.Straight:      score += 28; break; // 顺子优先级最高，5张变1轮
       case HandType.Plate:         score += 20; break;
       case HandType.Pair:          score += 5;  break;
       case HandType.Single:        score += 0;  break;
       case HandType.Bomb:          score += 0;  break;
     }
     score += grp.value / 5;
-    // 惩罚：三带二若对子来源于三条组（拆了三条），扣分减少散牌
+    // 三带二：对子价值高于三条价值时扣分（大的对子不该拿来配三带二）
     if (grp.type === HandType.TripsWithPair) {
       const pairRank = grp.cards[3].rank;
+      const pairVal = getLogicValue(pairRank, level);
+      const tripVal = grp.value;
+      // 大对子配小三张扣分，小三张配大对子更扣分
+      if (pairVal > tripVal) score -= 15; // 大对子配小三张
+      // 级牌不当对子已在候选生成时跳过
       const pairCnt = remaining.filter(c => c.rank === pairRank).length;
-      if (pairCnt === 3) score -= 12;
+      if (pairCnt === 3) score -= 12; // 拆了三条
     }
     // 出完这组后评估剩余牌
     const after = remaining.filter(c => !grp.cards.some(gc => gc.id === c.id));
@@ -830,7 +842,10 @@ export class Bot {
    */
   private findControllingPlay(): Card[] | null {
     const myGroups = this.handPlan.groups;
-    const nonBombGroups = myGroups.filter((_, i) => !this.handPlan.getBombIndices().has(i));
+    const bombIdxs = this.handPlan.getBombIndices();
+    const nonBombGroups = myGroups.filter((_, i) => !bombIdxs.has(i));
+    const myBombs = bombIdxs.size;
+    const myCards = this.cards.length;
 
     // 按牌型分组，找"有大小两组"的类型（出小留大收回）
     const typeMap = new Map<HandType, { cards: Card[]; value: number; index: number }[]>();
@@ -842,44 +857,53 @@ export class Bot {
       typeMap.get(hand.type)!.push({ cards: g.cards, value: hand.value, index: i });
     }
 
+    // 0. 如果有炸弹且有散牌，优先出散牌，炸弹垫底
+    // 只有非炸弹组全部出完才出炸弹（除非终局）
+    if (myBombs > 0 && nonBombGroups.length > 0 && myCards > 6) {
+      // 跳过炸弹，直接走下面的散牌逻辑
+    }
+
     // 1. 找有大小两组的同类型 -> 出小的，大的留着收回
     for (const [type, groups] of typeMap) {
       if (groups.length >= 2) {
         groups.sort((a, b) => a.value - b.value);
         const small = groups[0];
-        // 验证牌还在手里
         if (this.canPlay(small.cards)) return small.cards;
       }
     }
 
-    // 2. 找对手接不了的牌型（通过tracker判断）
-    // 出单张时检查：对手还有没有更大的单张？
+    // 2. 单张：大牌留着收回，出小牌探路
+    // 但如果只剩大小王，不要出干净，留一张控制
     const mySingles = nonBombGroups.filter(g => {
       const h = getHandType(g.cards, this.level);
       return h && h.type === HandType.Single;
     });
     if (mySingles.length > 0) {
-      // 找一张对手大概率接不了的单张
       const sortedSingles = mySingles.sort((a, b) => {
         const va = getLogicValue(a.cards[0].rank, this.level);
         const vb = getLogicValue(b.cards[0].rank, this.level);
-        return vb - va; // 从大到小
+        return vb - va;
       });
-      // 如果我最大的单张是A/级牌/王，出小的探路，大牌留着收回
+      // 大小王不轻易出，留着控制
       for (const s of sortedSingles) {
         const val = getLogicValue(s.cards[0].rank, this.level);
-        // 大牌(>=A=14)留着收回，出小牌
-        if (val >= 14) continue;
+        if (val >= 15) continue; // 小王/大王留着
+        if (val >= 14 && mySingles.length <= 2) continue; // 只剩2张单张时A也留着
         if (this.canPlay(s.cards)) return s.cards;
       }
-      // 只剩大牌了，出最小的
-      const smallest = sortedSingles[sortedSingles.length - 1];
-      if (this.canPlay(smallest.cards)) return smallest.cards;
+      // 实在没有小牌了，出最小的（但不包括大小王，除非只剩王）
+      for (const s of sortedSingles) {
+        const c = s.cards[0];
+        if (c.rank === Rank.BigJoker || c.rank === Rank.SmallJoker) {
+          // 大小王只在最后才出
+          if (myCards <= 3) return s.cards;
+          continue;
+        }
+        if (this.canPlay(s.cards)) return s.cards;
+      }
     }
 
-    // 3. 找队友可能能接的牌型（出过同类）
-    // 队友之前出过对子 -> 出小对子让队友接
-    // 这里简化：如果有对子，出最小的
+    // 3. 对子：出最小的
     const myPairs = nonBombGroups.filter(g => {
       const h = getHandType(g.cards, this.level);
       return h && h.type === HandType.Pair;
@@ -893,7 +917,7 @@ export class Bot {
       if (this.canPlay(myPairs[0].cards)) return myPairs[0].cards;
     }
 
-    // 4. 三带二（消耗手牌）
+    // 4. 三带二：小的三张配小的对子
     const myTripsWithPair = nonBombGroups.filter(g => {
       const h = getHandType(g.cards, this.level);
       return h && h.type === HandType.TripsWithPair;
@@ -921,11 +945,28 @@ export class Bot {
       if (this.canPlay(mySequences[0].cards)) return mySequences[0].cards;
     }
 
-    // 6. 最后出最小单张
+    // 6. 最后出最小单张（排除大小王）
     for (const g of nonBombGroups) {
       const h = getHandType(g.cards, this.level);
       if (h && h.type === HandType.Single && this.canPlay(g.cards)) {
+        const c = g.cards[0];
+        if (c.rank === Rank.BigJoker || c.rank === Rank.SmallJoker) {
+          if (myCards > 3) continue; // 留着控制
+        }
         return g.cards;
+      }
+    }
+
+    // 7. 实在没牌出了，出炸弹（从小的开始）
+    if (myBombs > 0) {
+      const bombGroups = myGroups.filter((_, i) => bombIdxs.has(i));
+      bombGroups.sort((a, b) => {
+        const ha = getHandType(a.cards, this.level);
+        const hb = getHandType(b.cards, this.level);
+        return (ha?.value || 0) - (hb?.value || 0);
+      });
+      if (bombGroups.length > 0 && this.canPlay(bombGroups[0].cards)) {
+        return bombGroups[0].cards;
       }
     }
 
@@ -1426,20 +1467,28 @@ export class Bot {
     // 枪不打四：对家剩4张，不是炸弹就不炸
     if (enemyCards === 4 && !isBomb) return null;
 
-    // 对家剩5张 → 必须炸（可能是三带二或顺子）
-    if (enemyCards === 5 && !isBomb) return this.findBomb(target);
+    // 对家剩5张 -> 必须炸（可能是三带二或顺子），但联盟剩5张不炸
+    if (enemyCards === 5 && !isBomb && !this.isAlly(lastPlayerIndex)) return this.findBomb(target);
 
-    // 对家剩7张 → 必须炸（可能是两套牌）
-    if (enemyCards === 7 && !isBomb) return this.findBomb(target);
+    // 对家剩7张 -> 必须炸（可能是两套牌），但联盟剩7张不炸
+    if (enemyCards === 7 && !isBomb && !this.isAlly(lastPlayerIndex)) return this.findBomb(target);
 
-    // 对家剩8张 → 不炸（可能是三套牌，炸不完）
+    // 对家剩8张 -> 不炸（三套牌炸不完）
     if (enemyCards === 8 && !isBomb) return null;
 
-    // 对家剩≤3张 → 必须炸（快走了）
-    if (enemyCards <= 3) return this.findBomb(target);
+    // 对家剩≤3张 -> 必须炸（快走了），但联盟不炸
+    if (enemyCards <= 3 && !this.isAlly(lastPlayerIndex)) return this.findBomb(target);
 
-    // 自己剩≤5张 → 炸了收尾
-    if (myCards <= 5) return this.findBomb(target);
+    // 自己剩≤5张 -> 炸了收尾（但要留最后一手炸弹垫底）
+    if (myCards <= 5) {
+      const myBombs = this.countMyBombs();
+      // 如果只剩炸弹+1手散牌，先出散牌，炸弹垫底
+      if (myBombs >= 1 && myCards - 4 >= 1 && myCards - 4 <= 5) {
+        // 不炸，先出散牌
+        return null;
+      }
+      return this.findBomb(target);
+    }
 
     // 自己剩>15张 → 不浪费炸弹
     if (myCards > 15) return null;
