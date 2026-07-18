@@ -2324,8 +2324,20 @@ export class Bot {
   }
 
   getBombs(): { cards: Card[], value: number }[] {
-    const groups = this.getGroups(4);
-    return groups.map(g => ({ cards: g, value: getLogicValue(g[0].rank, this.level) }));
+    // 按 rank 分组，取全部4+张作为完整炸弹（不拆5+为4+1）
+    const rankGroups = new Map<number, Card[]>();
+    for (const c of this.cards) {
+      if (!rankGroups.has(c.rank)) rankGroups.set(c.rank, []);
+      rankGroups.get(c.rank)!.push(c);
+    }
+    const bombs: { cards: Card[], value: number }[] = [];
+    for (const [rank, cs] of rankGroups) {
+      if (cs.length >= 4) {
+        bombs.push({ cards: [...cs], value: getLogicValue(rank, this.level) });
+      }
+    }
+    bombs.sort((a, b) => a.value - b.value);
+    return bombs;
   }
 }
 
