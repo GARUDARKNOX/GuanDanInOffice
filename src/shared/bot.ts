@@ -156,6 +156,129 @@ class HandPlan {
 
     // 4. 排序：非炸弹组升序，炸弹最后
     this.sortByPlayOrder();
+
+    // 5. 后处理：评估拆炸弹能否减少手数
+    this.optimizeByUnbombing(level);
+  }
+
+  /**
+   * 后处理：评估拆掉一个炸弹能否减少总手数。
+   * 如果拆炸弹后能组成更多顺子/连对，且总手数减少，则拆。
+   * 只拆4炸，不拆5炸+。
+   */
+  private optimizeByUnbombing(level: number): void {
+    const bombIdxs = Array.from(this.bombIndices).sort((a, b) => a - b);
+    if (bombIdxs.length === 0) return;
+
+    // 只保留4张炸弹（5+炸太珍贵不拆）
+    const fourBombs = bombIdxs.filter(i => {
+      const g = this.groups[i];
+      return g.cards.length === 4;
+    });
+    if (fourBombs.length === 0) return;
+
+    let bestPlan = { groups: this.groups, bombIndices: this.bombIndices, handCount: this.estimateTotalHands() };
+
+    for (const bi of fourBombs) {
+      const bombGroup = this.groups[bi];
+      if (!bombGroup) continue;
+
+      // 模拟拆掉这个炸弹：把4张牌放回散牌池重新组
+      const allCards: Card[] = [];
+      for (let i = 0; i < this.groups.length; i++) {
+        if (i === bi) {
+          allCards.push(...bombGroup.cards); // 拆掉的炸弹牌放回
+        } else {
+          allCards.push(...this.groups[i].cards);
+        }
+      }
+
+      // 重新组牌（不提取这个rank的炸弹）
+      const newGroups = this.regroupWithoutBomb(allCards, level, bombGroup.cards[0].rank);
+      const newBombIndices = new Set<number>();
+      for (let i = 0; i < newGroups.length; i++) {
+        const h = getHandType(newGroups[i].cards, level);
+        if (h && (h.type === HandType.Bomb || h.type === HandType.StraightFlush || h.type === HandType.FourKings)) {
+          newBombIndices.add(i);
+        }
+      }
+      const newHandCount = this.countHandsFromGroups(newGroups);
+
+      // 如果拆了之后手数减少，且炸弹数没减少太多，采用新方案
+      if (newHandCount < bestPlan.handCount) {
+        const oldBombCount = this.bombIndices.size;
+        const newBombCount = newBombIndices.size;
+        // 拆一个炸后炸弹数-1是可以接受的，但不能-2以上
+        if (oldBombCount - newBombCount <= 1) {
+          bestPlan = { groups: newGroups, bombIndices: newBombIndices, handCount: newHandCount };
+        }
+      }
+    }
+
+    this.groups = bestPlan.groups;
+    this.bombIndices = bestPlan.bombIndices;
+    this.sortByPlayOrder();
+  }
+
+  /** 不提取指定rank的炸弹，重新组牌 */
+  private regroupWithoutBomb(cards: Card[], level: number, excludeRank: number): { cards: Card[]; type: HandType; value: number }[] {
+    const remaining = [...cards];
+    const result: { cards: Card[]; type: HandType; value: number }[] = [];
+    const bombGroups: { cards: Card[]; type: HandType; value: number }[] = [];
+
+    // 提取炸弹（跳过excludeRank）
+    const g = this.groupCards(remaining);
+    for (const [r, cs] of g) {
+      if (r === Rank.SmallJoker || r === Rank.BigJoker) continue;
+      if (r === excludeRank) continue; // 跳过要拆的rank
+      const nonWild = cs.filter(c => !c.isWild);
+      if (nonWild.length >= 4) {
+        const bombCards = nonWild.slice(0, Math.min(nonWild.length, 8));
+        const hand = getHandType(bombCards, level);
+        if (hand && hand.type === HandType.Bomb) {
+          bombGroups.push({ cards: bombCards, type: HandType.Bomb, value: hand.value });
+          this.removeCards(remaining, bombCards.map(c => c.id));
+        }
+      }
+    }
+
+    // 四大天王
+    const sj = cards.filter(c => c.rank === Rank.SmallJoker);
+    const bj = cards.filter(c => c.rank === Rank.BigJoker);
+    if (sj.length === 2 && bj.length === 2) {
+      bombGroups.push({ cards: [...sj, ...bj], type: HandType.FourKings, value: 999 });
+      this.removeCards(remaining, [...sj, ...bj].map(c => c.id));
+    }
+
+    // 纯同花顺
+    const sfGroups = this.extractPureStraightFlushes(remaining);
+    for (const sg of sfGroups) bombGroups.push(sg);
+
+    // 万能牌配同花顺/炸弹
+    const wildGroups = this.extractWildCardBombs(remaining, level);
+    for (const wg of wildGroups) bombGroups.push(wg);
+
+    // 贪心组非炸弹牌
+    while (remaining.length > 0) {
+      const best = this.findBestGroup(remaining, level);
+      if (!best) break;
+      result.push(best);
+      this.removeCards(remaining, best.cards.map(c => c.id));
+    }
+
+    // 炸弹放最后
+    for (const b of bombGroups) result.push(b);
+    return result;
+  }
+
+  /** 估算当前分组总手数 */
+  private estimateTotalHands(): number {
+    return this.countHandsFromGroups(this.groups);
+  }
+
+  /** 从分组列表估算手数 */
+  private countHandsFromGroups(groups: { cards: Card[]; type: HandType; value: number }[]): number {
+    return groups.length;
   }
 
   private findAllBombs(cards: Card[], level: number): { cards: Card[]; type: HandType; value: number }[] {
