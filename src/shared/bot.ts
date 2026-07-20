@@ -1588,6 +1588,11 @@ export class Bot {
       }
     }
 
+    // 手牌全是炸弹时无条件炸
+    if (this.areAllCardsBombs()) {
+      if (this.findBomb(target)) return this.decideBomb(target, lastPlayerIndex);
+    }
+
     // 最后才考虑炸弹
     if (blockUrgency >= 2) {
       return this.decideBomb(target, lastPlayerIndex);
@@ -1647,7 +1652,7 @@ export class Bot {
           const val = getLogicValue(this.cards[i].rank, this.level);
           if (val > target.value) {
             const groupSize = this.countSameRank(this.cards[i].rank);
-            if (groupSize >= 4 && this.cards.length > 6) continue;
+            if (groupSize >= 4) continue; // 炸弹绝对不拆出单张
             result.push([this.cards[i]]);
           }
         }
@@ -1659,7 +1664,7 @@ export class Bot {
           const val = getLogicValue(pair[0].rank, this.level);
           if (val > target.value) {
             const groupSize = this.countSameRank(pair[0].rank);
-            if (groupSize >= 4 && this.cards.length > 8) continue;
+            if (groupSize >= 4) continue; // 炸弹绝对不拆出对子
             result.push(pair);
           }
         }
@@ -1671,7 +1676,7 @@ export class Bot {
           const val = getLogicValue(t[0].rank, this.level);
           if (val > target.value) {
             const groupSize = this.countSameRank(t[0].rank);
-            if (groupSize >= 4 && this.cards.length > 10) continue;
+            if (groupSize >= 4) continue; // 炸弹绝对不拆出三条
             result.push(t);
           }
         }
@@ -1683,7 +1688,7 @@ export class Bot {
           const tVal = getLogicValue(t[0].rank, this.level);
           if (tVal > target.value) {
             const groupSize = this.countSameRank(t[0].rank);
-            if (groupSize >= 4 && this.cards.length > 10) continue;
+            if (groupSize >= 4) continue; // 炸弹绝对不拆
             const pair = this.findPairExcluding(t);
             if (pair) result.push([...t, ...pair]);
           }
@@ -1774,15 +1779,14 @@ export class Bot {
     // 对家剩≤3张 -> 必须炸（快走了），但联盟不炸
     if (enemyCards <= 3 && !this.isAlly(lastPlayerIndex)) return this.findBomb(target);
 
-    // 自己剩≤5张 -> 炸了收尾（但要留最后一手炸弹垫底）
+    // 自己剩≤5张 -> 炸了收尾
     if (myCards <= 5) {
-      const myBombs = this.countMyBombs();
-      // 如果只剩炸弹+1手散牌，先出散牌，炸弹垫底
-      if (myBombs >= 1 && myCards - 4 >= 1 && myCards - 4 <= 5) {
-        // 不炸，先出散牌
-        return null;
+      // 如果所有牌都是炸弹 -> 直接炸
+      if (this.areAllCardsBombs()) {
+        return this.findBomb(target);
       }
-      return this.findBomb(target);
+      // 如果有炸弹+散牌，且有炸弹可用 -> 炸了走人
+      if (this.countMyBombs() >= 1) return this.findBomb(target);
     }
 
     // 自己剩>15张 → 不浪费炸弹
@@ -1914,8 +1918,8 @@ export class Bot {
           const val = getLogicValue(c.rank, this.level);
           if (val > target.value) {
             const sameRankCount = this.countSameRank(c.rank);
-            if (sameRankCount >= 4 && this.cards.length > 6) continue;
-            if (sameRankCount <= 1 || sameRankCount >= 4) {
+            if (sameRankCount >= 4) continue; // 炸弹绝对不拆出单张
+            if (sameRankCount <= 1) {
               result.push([c]);
             }
           }
@@ -1927,7 +1931,7 @@ export class Bot {
           const val = getLogicValue(pair[0].rank, this.level);
           if (val > target.value) {
             const groupSize = this.countSameRank(pair[0].rank);
-            if (groupSize >= 4 && this.cards.length > 8) continue;
+            if (groupSize >= 4) continue; // 炸弹绝对不拆
             if (matchesPlan(pair)) result.push(pair);
           }
         }
@@ -1939,7 +1943,7 @@ export class Bot {
           const val = getLogicValue(t[0].rank, this.level);
           if (val > target.value) {
             const groupSize = this.countSameRank(t[0].rank);
-            if (groupSize >= 4 && this.cards.length > 10) continue;
+            if (groupSize >= 4) continue; // 炸弹绝对不拆
             if (matchesPlan(t)) result.push(t);
           }
         }
@@ -1951,7 +1955,7 @@ export class Bot {
           const tVal = getLogicValue(t[0].rank, this.level);
           if (tVal > target.value) {
             const groupSize = this.countSameRank(t[0].rank);
-            if (groupSize >= 4 && this.cards.length > 10) continue;
+            if (groupSize >= 4) continue; // 炸弹绝对不拆
             const pair = this.findPairExcluding(t);
             if (pair) {
               const combined = [...t, ...pair];
@@ -2030,7 +2034,7 @@ export class Bot {
       const val = getLogicValue(this.cards[i].rank, this.level);
       if (val > targetVal) {
         const groupSize = this.countSameRank(this.cards[i].rank);
-        if (groupSize >= 4 && this.cards.length > 6) continue;
+        if (groupSize >= 4) continue; // 炸弹绝对不拆
         return [this.cards[i]];
       }
     }
@@ -2043,7 +2047,7 @@ export class Bot {
       const val = getLogicValue(pair[0].rank, this.level);
       if (val > targetVal) {
         const groupSize = this.countSameRank(pair[0].rank);
-        if (groupSize >= 4 && this.cards.length > 8) continue;
+        if (groupSize >= 4) continue; // 炸弹绝对不拆
         return pair;
       }
     }
@@ -2056,7 +2060,7 @@ export class Bot {
       const val = getLogicValue(t[0].rank, this.level);
       if (val > targetVal) {
         const groupSize = this.countSameRank(t[0].rank);
-        if (groupSize >= 4 && this.cards.length > 10) continue;
+        if (groupSize >= 4) continue; // 炸弹绝对不拆
         return t;
       }
     }
@@ -2069,7 +2073,7 @@ export class Bot {
       const tVal = getLogicValue(t[0].rank, this.level);
       if (tVal > targetVal) {
         const groupSize = this.countSameRank(t[0].rank);
-        if (groupSize >= 4 && this.cards.length > 10) continue;
+        if (groupSize >= 4) continue; // 炸弹绝对不拆
         const pair = this.findPairExcluding(t);
         if (pair) return [...t, ...pair];
       }
@@ -2245,6 +2249,15 @@ export class Bot {
     const hand = getHandType(this.cards, this.level);
     if (hand) return [...this.cards];
     return null;
+  }
+
+  /** 手牌是否全是炸弹？是则出牌只能出炸弹 */
+  private areAllCardsBombs(): boolean {
+    const groups = this.groupByRawRank();
+    for (const [, cs] of groups) {
+      if (cs.length < 4) return false;
+    }
+    return this.cards.length > 0;
   }
 
   private countSameRank(rank: Rank): number {
