@@ -42,7 +42,8 @@ export enum HandType {
   Plate = 'Plate', 
   Bomb = 'Bomb', 
   StraightFlush = 'StraightFlush',
-  FourKings = 'FourKings'
+  FourKings = 'FourKings',
+  ThreeKings = 'ThreeKings'
 }
 
 export interface Hand {
@@ -63,6 +64,12 @@ export interface HandInterpretation {
 export enum GameMode {
   Normal = 'Normal',
   Skill = 'Skill'
+}
+
+// Game Variant (player count)
+export enum GameVariant {
+  FourPlayer = 'FourPlayer',
+  ThreePlayer = 'ThreePlayer'
 }
 
 // Skill Card Types

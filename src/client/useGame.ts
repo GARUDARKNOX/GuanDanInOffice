@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { socket } from './socket';
-import { Card, GameMode, SkillCard, Hand, HistoryEntry } from '../shared/types';
+import { Card, GameMode, GameVariant, SkillCard, Hand, HistoryEntry } from '../shared/types';
 
 export interface GameState {
   phase: string;
@@ -122,8 +122,8 @@ export function useGame() {
     };
   }, []);
 
-  const joinRoom = (name: string, roomId: string) => {
-    socket.emit('joinRoom', { playerName: name, roomId });
+  const joinRoom = (name: string, roomId: string, variant?: GameVariant) => {
+    socket.emit('joinRoom', { playerName: name, roomId, gameVariant: variant });
   };
 
   const setReady = () => {

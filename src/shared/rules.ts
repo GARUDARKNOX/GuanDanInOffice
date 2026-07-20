@@ -125,12 +125,21 @@ export function getHandType(cards: Card[], level: number): Hand | null {
   const uniqueValues = Array.from(counts.keys()).sort((a, b) => b - a); // Descending
   const maxCount = Math.max(...Array.from(counts.values()), 0);
 
-  // 1. Four Kings (Sky Bomb)
+  // 1. Four Kings (Sky Bomb) - 4-player mode: 2 small + 2 big jokers
+  //    Three Kings - 3-player mode: 2 small + 1 big jokers (or 3 jokers total)
   if (len === 4) {
     const smallJokers = cards.filter(c => c.rank === Rank.SmallJoker).length;
     const bigJokers = cards.filter(c => c.rank === Rank.BigJoker).length;
     if (smallJokers === 2 && bigJokers === 2) {
       return { type: HandType.FourKings, cards, value: 999 };
+    }
+  }
+  if (len === 3) {
+    const smallJokers = cards.filter(c => c.rank === Rank.SmallJoker).length;
+    const bigJokers = cards.filter(c => c.rank === Rank.BigJoker).length;
+    if (smallJokers + bigJokers === 3) {
+      // 3 jokers = ThreeKings bomb (only valid in 3-player mode)
+      return { type: HandType.ThreeKings, cards, value: 998 };
     }
   }
 
@@ -254,6 +263,9 @@ export function getHandType(cards: Card[], level: number): Hand | null {
 export function compareHands(handA: Hand, handB: Hand): number {
     if (handA.type === HandType.FourKings) return 1;
     if (handB.type === HandType.FourKings) return -1;
+    // ThreeKings beats everything except FourKings (which is handled above)
+    if (handA.type === HandType.ThreeKings) return 1;
+    if (handB.type === HandType.ThreeKings) return -1;
     
     const isBombA = handA.type === HandType.Bomb || handA.type === HandType.StraightFlush;
     const isBombB = handB.type === HandType.Bomb || handB.type === HandType.StraightFlush;
@@ -300,7 +312,8 @@ export function getHandDescription(hand: Hand, level: number): string {
         [HandType.Plate]: '木板',
         [HandType.Bomb]: '炸弹',
         [HandType.StraightFlush]: '同花顺',
-        [HandType.FourKings]: '天王炸'
+        [HandType.FourKings]: '天王炸',
+        [HandType.ThreeKings]: '三王炸'
     };
     
     let desc = typeNames[hand.type] || hand.type;

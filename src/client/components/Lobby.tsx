@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GameMode } from '../../shared/types';
+import { GameMode, GameVariant } from '../../shared/types';
 
 interface RoomInfo {
   id: string;
@@ -7,11 +7,12 @@ interface RoomInfo {
   maxPlayers: number;
   inGame: boolean;
   gameMode: GameMode;
+  gameVariant?: GameVariant;
   hostName: string;
 }
 
 interface Props {
-  onJoin: (name: string, roomId: string) => void;
+  onJoin: (name: string, roomId: string, variant?: GameVariant) => void;
   roomList: RoomInfo[];
   onFetchRoomList: () => void;
 }
@@ -22,6 +23,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
   const [name, setName] = useState('');
   const [roomId, setRoomId] = useState('default');
   const [showRoomList, setShowRoomList] = useState(true);
+  const [selectedVariant, setSelectedVariant] = useState<GameVariant>(GameVariant.FourPlayer);
 
   useEffect(() => {
     if (showRoomList) {
@@ -33,7 +35,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (name.trim()) onJoin(name, roomId);
+    if (name.trim()) onJoin(name, roomId, selectedVariant);
   };
 
   const handleQuickJoin = (targetRoomId: string) => {
@@ -47,12 +49,17 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
     const newId = 'room-' + Math.random().toString(36).slice(2, 8);
     setRoomId(newId);
     if (name.trim()) {
-      onJoin(name, newId);
+      onJoin(name, newId, selectedVariant);
     }
   };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen text-gray-300 p-4 relative overflow-hidden">
+      {/* AI-generated background image */}
+      <div className="absolute inset-0 pointer-events-none">
+        <img src="/lobby-bg.png" alt="" className="w-full h-full object-cover opacity-30" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a2e]/80 via-[#16213e]/70 to-[#0f0f1a]/90" />
+      </div>
       {/* Subtle background pattern - card suit watermark */}
       <div className="absolute inset-0 pointer-events-none select-none overflow-hidden opacity-[0.03]">
         <div className="absolute top-[10%] left-[5%] text-[20rem] leading-none">♠</div>
@@ -96,6 +103,43 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
             <span className="w-3 h-3 rounded-full bg-[#ffbd2e]"></span>
             <span className="w-3 h-3 rounded-full bg-[#27c93f]"></span>
             <span className="text-[11px] text-[#808080] ml-2 font-mono">lobby.tsx</span>
+          </div>
+
+          {/* Game Mode Selector */}
+          <div>
+            <label className="block text-[11px] font-mono uppercase tracking-wider mb-2 text-[#569cd6]">
+              游戏模式
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedVariant(GameVariant.FourPlayer)}
+                className={`flex-1 py-2.5 rounded text-sm font-bold transition-all duration-200 ${
+                  selectedVariant === GameVariant.FourPlayer
+                    ? 'bg-[#0e639c] text-white shadow-lg shadow-[#0e639c]/30'
+                    : 'bg-[#1e1e1e] text-[#808080] border border-[#3c3c3c] hover:border-[#569cd6]'
+                }`}
+              >
+                <div className="flex flex-col items-center gap-0.5">
+                  <span className="text-lg">♠♥♣♦</span>
+                  <span className="text-xs">四人掼蛋</span>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedVariant(GameVariant.ThreePlayer)}
+                className={`flex-1 py-2.5 rounded text-sm font-bold transition-all duration-200 ${
+                  selectedVariant === GameVariant.ThreePlayer
+                    ? 'bg-[#5a8d3c] text-white shadow-lg shadow-[#5a8d3c]/30'
+                    : 'bg-[#1e1e1e] text-[#808080] border border-[#3c3c3c] hover:border-[#6a9955]'
+                }`}
+              >
+                <div className="flex flex-col items-center gap-0.5">
+                  <span className="text-lg">♠♥♦</span>
+                  <span className="text-xs">三人掼蛋</span>
+                </div>
+              </button>
+            </div>
           </div>
 
           <div>

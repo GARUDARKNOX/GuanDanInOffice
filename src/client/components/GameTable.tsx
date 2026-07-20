@@ -718,12 +718,12 @@ export const GameTable: React.FC<Props> = ({
                           onClick={() => {
                             setSelectedCardIds(g.cards.map(c => c.id));
                           }}
-                          className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer hover:scale-105 transition-transform ${g.isBomb ? 'bg-red-600/80 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer hover:scale-105 transition-transform ${g.isBomb ? 'bg-red-600/80 text-white' : 'bg-white/15 text-white hover:bg-white/25'}`}
                           title="点击选中这组牌"
                         >
-                            <span className={`inline-block w-1.5 h-1.5 rounded-full ${dotColor}`}></span>
-                            <span className="opacity-80">{typeName}</span>
-                            <span className="font-mono text-[9px] opacity-60">{cardStr}</span>
+                            <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor}`}></span>
+                            <span className="opacity-90">{typeName}</span>
+                            <span className="font-mono text-xs opacity-70">{cardStr}</span>
                         </div>
                     );
                 })}
