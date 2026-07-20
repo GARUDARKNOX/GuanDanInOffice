@@ -29,8 +29,8 @@ app.use(express.static(path.join(__dirname, '../client'), {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  socket.on('joinRoom', ({ playerName, roomId }) => {
-    roomManager.joinRoom(socket, playerName, roomId || 'default');
+  socket.on('joinRoom', ({ playerName, roomId, gameVariant }) => {
+    roomManager.joinRoom(socket, playerName, roomId || 'default', gameVariant);
   });
 
   socket.on('getRoomList', () => {

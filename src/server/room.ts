@@ -1,7 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import { Game } from './game';
 import { Match } from './match';
-import { GameMode } from '../shared/types';
+import { GameMode, GameVariant } from '../shared/types';
 
 export interface Player {
   id: string; // Socket ID (Current)
@@ -21,10 +21,10 @@ export class RoomManager {
     this.io = io;
   }
 
-  joinRoom(socket: Socket, playerName: string, roomId: string) {
+  joinRoom(socket: Socket, playerName: string, roomId: string, gameVariant?: GameVariant) {
     let room = this.rooms.get(roomId);
     if (!room) {
-      room = new Room(roomId, this.io);
+      room = new Room(roomId, this.io, gameVariant);
       this.rooms.set(roomId, room);
     }
     room.addPlayer(socket, playerName);
@@ -47,12 +47,14 @@ export class RoomManager {
       .filter(([, room]) => room.players.some(p => p !== null && !p.isBot && !p.isDisconnected))
       .map(([, room]) => {
         const activeHumans = room.players.filter(p => p !== null && !p.isBot && !p.isDisconnected);
+        const maxPlayers = room.gameVariant === GameVariant.ThreePlayer ? 3 : 4;
         return {
           id: room.id,
           playerCount: activeHumans.length,
-          maxPlayers: 4,
+          maxPlayers,
           inGame: room.match !== null && room.match.currentGame !== null,
           gameMode: room.gameMode,
+          gameVariant: room.gameVariant,
           hostName: activeHumans[0]?.name || 'Unknown'
         };
       });
@@ -73,13 +75,17 @@ export class RoomManager {
 class Room {
   id: string;
   io: Server;
-  players: (Player | null)[] = [null, null, null, null];
-  match: Match | null = null; // Changed from game to match
+  players: (Player | null)[];
+  match: Match | null = null;
   gameMode: GameMode = GameMode.Normal;
+  gameVariant: GameVariant;
 
-  constructor(id: string, io: Server) {
+  constructor(id: string, io: Server, gameVariant?: GameVariant) {
     this.id = id;
     this.io = io;
+    this.gameVariant = gameVariant ?? GameVariant.FourPlayer;
+    const playerCount = this.gameVariant === GameVariant.ThreePlayer ? 3 : 4;
+    this.players = new Array(playerCount).fill(null);
   }
 
   addPlayer(socket: Socket, name: string) {
@@ -237,7 +243,7 @@ class Room {
 
   switchSeat(socket: Socket, targetSeat: number) {
       if (this.match && this.match.matchWinner === null) return; // Cannot switch during match
-      if (targetSeat < 0 || targetSeat > 3) return;
+      if (targetSeat < 0 || targetSeat >= this.players.length) return;
       
       const currentIdx = this.players.findIndex(p => p && p.id === socket.id);
       if (currentIdx === -1) return;
@@ -307,7 +313,8 @@ class Room {
   
   tryAutoStart() {
       const readyCount = this.players.filter(p => p && p.isReady).length;
-      if (readyCount === 4 && !this.match) {
+      const maxPlayers = this.gameVariant === GameVariant.ThreePlayer ? 3 : 4;
+      if (readyCount === maxPlayers && !this.match) {
            this.startGame();
       }
   }
@@ -342,7 +349,7 @@ class Room {
       this.broadcastState();
 
       // Start a new match (full game series from 2 to A)
-      this.match = new Match(this.io, this.id, gamePlayers, this.gameMode);
+      this.match = new Match(this.io, this.id, gamePlayers, this.gameMode, this.gameVariant);
       this.match.startMatch();
       
       this.io.to(this.id).emit('matchStarted');
@@ -353,7 +360,8 @@ class Room {
     this.io.to(this.id).emit('roomState', {
       roomId: this.id,
       players: playerList,
-      gameMode: this.gameMode
+      gameMode: this.gameMode,
+      gameVariant: this.gameVariant
     });
   }
 }

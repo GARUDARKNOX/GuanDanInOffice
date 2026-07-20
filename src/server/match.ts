@@ -1,7 +1,7 @@
 import { Server } from 'socket.io';
 import { Game } from './game';
 import { Player } from './room';
-import { GameMode } from '../shared/types';
+import { GameMode, GameVariant } from '../shared/types';
 
 /**
  * Match represents a full game series (从2打到A)
@@ -12,7 +12,8 @@ export class Match {
     roomId: string;
     players: Player[];
     gameMode: GameMode;
-    
+    gameVariant: GameVariant;
+
     currentGame: Game | null = null;
     teamLevels: { [key: number]: number } = { 0: 2, 1: 2 }; // Team 0 (seats 0,2) and Team 1 (seats 1,3)
     activeTeam: number = 0; // Which team is the banker (打庄)
@@ -24,11 +25,12 @@ export class Match {
     // Store last game's winners for tribute phase
     private lastWinners: number[] = [];
     
-    constructor(io: Server, roomId: string, players: Player[], gameMode: GameMode) {
+    constructor(io: Server, roomId: string, players: Player[], gameMode: GameMode, gameVariant: GameVariant = GameVariant.FourPlayer) {
         this.io = io;
         this.roomId = roomId;
         this.players = players;
         this.gameMode = gameMode;
+        this.gameVariant = gameVariant;
     }
     
     /**
@@ -66,7 +68,7 @@ export class Match {
         const gamePlayers = this.players.map(p => ({ ...p }));
         
         // Create new game
-        this.currentGame = new Game(this.io, this.roomId, gamePlayers, this.gameMode);
+        this.currentGame = new Game(this.io, this.roomId, gamePlayers, this.gameMode, this.gameVariant);
         this.currentGame.teamLevels = { ...this.teamLevels };
         this.currentGame.activeTeam = this.activeTeam;
         this.currentGame.prevWinners = prevWinners;

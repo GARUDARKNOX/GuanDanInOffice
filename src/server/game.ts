@@ -1,7 +1,7 @@
 import { Server, Socket } from 'socket.io';
-import { createDeck, shuffleDeck, updateCardProperties } from '../shared/deck';
+import { createDeck, createThreePlayerDeck, shuffleDeck, updateCardProperties } from '../shared/deck';
 import { getHandType, compareHands, sortCards, getLargestCard, getLogicValue } from '../shared/rules';
-import { Card, Hand, HandType, GameMode, SkillCard, SkillCardType, Suit, Rank, HistoryEntry, HistoryEventType } from '../shared/types';
+import { Card, Hand, HandType, GameMode, GameVariant, SkillCard, SkillCardType, Suit, Rank, HistoryEntry, HistoryEventType } from '../shared/types';
 import { Bot, CardTracker } from '../shared/bot';
 
 interface Player {
@@ -63,22 +63,28 @@ export class Game {
   activeTeam: number = 0; // Who is upgrading currently (Banker Team)
   prevWinners: number[] = [];
   
+  // Game Variant (3-player mode)
+  gameVariant: GameVariant = GameVariant.FourPlayer;
+  numPlayers: number = 4;
+  
   // Skill Mode
   gameMode: GameMode = GameMode.Normal;
-  skillCards: SkillCard[][] = [[], [], [], []];  // Each player's skill cards
-  skipNextTurn: boolean[] = [false, false, false, false];  // 乐不思蜀 effect
-  newCardIds: { [seat: number]: string[] } = {};  // Track newly acquired cards for highlight
+  skillCards: SkillCard[][] = [[], [], [], []];
+  skipNextTurn: boolean[] = [false, false, false, false];
+  newCardIds: { [seat: number]: string[] } = {};
   
   // Game History
   history: HistoryEntry[] = [];
   private historyIdCounter: number = 0;
   currentRound: number = 0;
 
-  constructor(io: Server, roomId: string, players: Player[], gameMode: GameMode = GameMode.Normal) {
+  constructor(io: Server, roomId: string, players: Player[], gameMode: GameMode = GameMode.Normal, gameVariant: GameVariant = GameVariant.FourPlayer) {
     this.io = io;
     this.roomId = roomId;
     this.players = players;
     this.gameMode = gameMode;
+    this.gameVariant = gameVariant;
+    this.numPlayers = gameVariant === GameVariant.ThreePlayer ? 3 : 4;
     
     // Setup listeners for human players
     this.players.forEach(p => {
@@ -211,12 +217,18 @@ export class Game {
         { level: this.level, activeTeam: this.activeTeam, round: this.currentRound }
     );
 
-    let deck = createDeck();
+    let deck: Card[];
+    const totalCards = this.numPlayers * 27;
+    if (this.gameVariant === GameVariant.ThreePlayer) {
+      deck = createThreePlayerDeck();
+    } else {
+      deck = createDeck();
+    }
     deck = shuffleDeck(deck);
     
-    this.hands = [[], [], [], []];
-    for (let i = 0; i < 108; i++) {
-        this.hands[i % 4].push(deck[i]);
+    this.hands = Array.from({ length: this.numPlayers }, () => [] as Card[]);
+    for (let i = 0; i < totalCards; i++) {
+        this.hands[i % this.numPlayers].push(deck[i]);
     }
     
     // Process hands
