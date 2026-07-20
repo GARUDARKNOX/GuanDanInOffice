@@ -1534,6 +1534,10 @@ export class Bot {
       // 队友出最后一手走牌 -> 不压
       if (this.handsInfo[partner] <= target.cards.length) return null;
 
+      // 队友出炸弹/同花顺/天王炸 -> 绝对不压（不能炸队友）
+      const targetIsBomb = target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings;
+      if (targetIsBomb) return null;
+
       // 队友出中小牌(value≤13) -> 顺牌过，帮队友抬牌
       if (target.value <= 13) {
         const beats = this.findAllBeatsPreservingPlan(target);
