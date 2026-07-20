@@ -195,6 +195,19 @@ class HandPlan {
           if (newGroups.length < 2) continue;
           const oldHandCount = 2; // 原来就是2组
           if (newGroups.length < oldHandCount) {
+            // 检查新方案不能把级牌配进连对/顺子
+            let badPlan = false;
+            for (const ng of newGroups) {
+              const h = getHandType(ng.cards, level);
+              if (!h) continue;
+              if (h.type === HandType.Tube || h.type === HandType.Straight) {
+                if (ng.cards.some(c => c.rank === level)) {
+                  badPlan = true;
+                  break;
+                }
+              }
+            }
+            if (badPlan) continue;
             // 用新组替换
             this.groups.splice(ib, 1);
             this.groups.splice(ia, 1);
@@ -284,6 +297,10 @@ class HandPlan {
     for (const bi of fourBombs) {
       const bombGroup = this.groups[bi];
       if (!bombGroup) continue;
+      const bombRank = bombGroup.cards[0].rank;
+
+      // 不拆级牌炸弹（级牌炸弹是强炸，拆了浪费）
+      if (bombRank === level) continue;
 
       // 模拟拆掉这个炸弹：把4张牌放回散牌池重新组
       const allCards: Card[] = [];
@@ -296,7 +313,7 @@ class HandPlan {
       }
 
       // 重新组牌（不提取这个rank的炸弹）
-      const newGroups = this.regroupWithoutBomb(allCards, level, bombGroup.cards[0].rank);
+      const newGroups = this.regroupWithoutBomb(allCards, level, bombRank);
       const newBombIndices = new Set<number>();
       for (let i = 0; i < newGroups.length; i++) {
         const h = getHandType(newGroups[i].cards, level);
@@ -306,13 +323,27 @@ class HandPlan {
       }
       const newHandCount = this.countHandsFromGroups(newGroups);
 
-      // 如果拆了之后手数减少，且炸弹数没减少太多，采用新方案
-      if (newHandCount < bestPlan.handCount) {
+      // 只有手数减少≥2才拆炸（减少1手不值得拆炸弹）
+      if (bestPlan.handCount - newHandCount >= 2) {
         const oldBombCount = this.bombIndices.size;
         const newBombCount = newBombIndices.size;
         // 拆一个炸后炸弹数-1是可以接受的，但不能-2以上
         if (oldBombCount - newBombCount <= 1) {
-          bestPlan = { groups: newGroups, bombIndices: newBombIndices, handCount: newHandCount };
+          // 检查新方案不能把级牌配成连对/顺子的组成部分
+          let badPlan = false;
+          for (const ng of newGroups) {
+            const h = getHandType(ng.cards, level);
+            if (!h) continue;
+            if (h.type === HandType.Tube || h.type === HandType.Straight) {
+              if (ng.cards.some(c => c.rank === level)) {
+                badPlan = true; // 级牌被配进连对/顺子，不采用
+                break;
+              }
+            }
+          }
+          if (!badPlan) {
+            bestPlan = { groups: newGroups, bombIndices: newBombIndices, handCount: newHandCount };
+          }
         }
       }
     }
