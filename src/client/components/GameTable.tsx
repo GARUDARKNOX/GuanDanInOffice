@@ -106,8 +106,8 @@ export const GameTable: React.FC<Props> = ({
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  const getPlayerAt = (offset: number) => {
-    const seat = (mySeat + offset) % 4;
+  const getPlayerAt = (offset: number, numPlayers: number = roomState.maxPlayers || 4) => {
+    const seat = (mySeat + offset) % numPlayers;
     const player = roomState.players.find(p => p && p.seatIndex === seat);
     const handCount = gameState ? (
       seat === mySeat 
@@ -115,8 +115,8 @@ export const GameTable: React.FC<Props> = ({
         : (gameState.hands[seat] as number)
     ) : 0;
     
-    // Team identification
-    const isTeammate = (mySeat + 2) % 4 === seat;
+    // Team identification (only for 4-player)
+    const isTeammate = numPlayers === 4 && (mySeat + 2) % 4 === seat;
     const isOpponent = !isTeammate && seat !== mySeat;
     
     return { player, handCount, seat, isTeammate, isOpponent };
@@ -508,7 +508,7 @@ export const GameTable: React.FC<Props> = ({
       <div className="absolute inset-20 border-2 border-[#333333] rounded-xl opacity-50 pointer-events-none"></div>
 
       <PlayerArea data={top} pos="top-4 left-1/2 -translate-x-1/2" />
-      <PlayerArea data={left} pos="left-8 top-1/2 -translate-y-1/2" />
+      {roomState.maxPlayers === 4 && <PlayerArea data={left} pos="left-8 top-1/2 -translate-y-1/2" />}
       <PlayerArea data={right} pos="right-8 top-1/2 -translate-y-1/2" />
       
       {/* Chat Box */}

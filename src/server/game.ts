@@ -679,22 +679,34 @@ export class Game {
   // Helper to end current round and find next start player
   endRoundAndFindNext(winner: number) {
       console.log(`[endRound] Round ended. Winner: ${winner}`);
+      const num = this.numPlayers;
       
-      // JieFeng Logic: If winner has no cards, partner leads
-      if (this.hands[winner].length === 0) {
-          console.log(`[endRound] Winner ${winner} has no cards. Partner接风.`);
-          winner = (winner + 2) % 4;
+      // JieFeng Logic: 4人模式 - 如果winner走完了, 队友接风
+      // 3人模式 - 无队友, 直接找下家有牌的人
+      if (this.gameVariant === GameVariant.FourPlayer) {
+          if (this.hands[winner].length === 0) {
+              console.log(`[endRound] Winner ${winner} has no cards. Partner接风.`);
+              winner = (winner + 2) % num;
+          }
+      } else {
+          // 3人模式: winner走完了直接找下家有牌的
+          if (this.hands[winner].length === 0) {
+              console.log(`[endRound] Winner ${winner} has no cards (3-player). Finding next.`);
+          }
       }
-
+      
       this.lastHand = null;
-      this.passCount = 0; // Deprecated but kept for compatibility
+      this.passCount = 0;
       this.roundActions = {}; 
 
-      // If the designated starter (e.g. partner) also has no cards, pass to next
-      const order = [winner, (winner + 1) % 4, (winner + 2) % 4, (winner + 3) % 4];
+      // Find next player with cards
+      const order: number[] = [];
+      for (let i = 0; i < num; i++) {
+          order.push((winner + i) % num);
+      }
       let found = false;
       for (const seat of order) {
-          if (this.hands[seat].length > 0) {
+          if (this.hands[seat] && this.hands[seat].length > 0) {
               this.currentTurn = seat;
               found = true;
               console.log(`[endRound] Next turn goes to seat ${seat}`);
@@ -735,10 +747,11 @@ export class Game {
   
   advanceTurn() {
       const prevTurn = this.currentTurn;
-      let next = (this.currentTurn + 1) % 4;
+      const num = this.numPlayers;
+      let next = (this.currentTurn + 1) % num;
       
-      // Look ahead up to 4 times to find next valid player
-      for (let i = 0; i < 4; i++) {
+      // Look ahead up to num times to find next valid player
+      for (let i = 0; i < num; i++) {
           // Check if we cycled back to the round winner (or their seat)
           if (this.lastHand && next === this.lastHand.playerIndex) {
                console.log(`[advanceTurn] Cycled back to last player ${next}. Round End.`);
@@ -751,7 +764,7 @@ export class Game {
           
           if (isFinished) {
               console.log(`[advanceTurn] Skipping seat ${next} (no cards)`);
-              next = (next + 1) % 4;
+              next = (next + 1) % num;
               continue;
           }
           
@@ -759,11 +772,9 @@ export class Game {
               console.log(`[advanceTurn] Skipping seat ${next} (乐不思蜀 effect)`);
               this.skipNextTurn[next] = false;
               this.io.to(this.roomId).emit('error', `${this.players[next].name} 被【乐不思蜀】跳过了回合！`);
-              this.roundActions[next] = { type: 'pass' }; // Visually show pass
+              this.roundActions[next] = { type: 'pass' };
               
-              // After skipping, check round end condition again for the NEXT player
-              // But easiest is just to loop again
-              next = (next + 1) % 4;
+              next = (next + 1) % num;
               continue;
           }
           
@@ -1183,7 +1194,8 @@ export class Game {
       }
       
       const handsInfo = this.hands.map(h => h.length);
-      const bot = new Bot(hand, this.level, seatIndex, handsInfo, this.cardTracker);
+      const is3p = this.gameVariant === GameVariant.ThreePlayer;
+      const bot = new Bot(hand, this.level, seatIndex, handsInfo, this.cardTracker, is3p);
       const lastPlayerIdx = this.lastHand ? this.lastHand.playerIndex : -1;
       const move = bot.decideMove(this.lastHand ? this.lastHand.hand : null, lastPlayerIdx);
       

@@ -945,6 +945,8 @@ export class Bot {
   tracker: CardTracker;
   private handPlan: HandPlan;
   private lastFreePlayType: 'None' | 'Pair' | 'Single' | 'TripsWithPair' | 'Sequence' = 'None';
+  /** 三人模式: isAlly永远false */
+  private isThreePlayer: boolean = false;
 
   /** 返回当前手牌的最优分组方案（供前端自动组牌使用） */
   getHandGroups(): { cards: Card[]; type: HandType; value: number; isBomb: boolean }[] {
@@ -957,16 +959,18 @@ export class Bot {
     }));
   }
 
-  constructor(cards: Card[], level: number, seatIndex: number = 0, handsInfo: number[] = [0,0,0,0], tracker?: CardTracker) {
+  constructor(cards: Card[], level: number, seatIndex: number = 0, handsInfo: number[] = [0,0,0,0], tracker?: CardTracker, isThreePlayer: boolean = false) {
     this.cards = sortCards(cards, level);
     this.level = level;
     this.seatIndex = seatIndex;
     this.handsInfo = handsInfo;
     this.tracker = tracker || new CardTracker();
+    this.isThreePlayer = isThreePlayer;
     this.handPlan = new HandPlan(this.cards, this.level);
   }
 
   private isAlly(idx: number): boolean {
+    if (this.isThreePlayer) return false;
     return idx >= 0 && idx % 2 === this.seatIndex % 2;
   }
 
