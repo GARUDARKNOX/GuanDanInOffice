@@ -311,7 +311,7 @@ export class Game {
           // 三人模式：末游向头游进贡
           if (this.prevWinners.length < 3) {
               this.currentPhase = GamePhase.Playing;
-              this.currentTurn = 0;
+              this.currentTurn = this.prevWinners[0] || 0;
               return;
           }
           const first = this.prevWinners[0];
@@ -326,6 +326,10 @@ export class Game {
           });
           this.tributeState.nextStartPlayer = last; // 末游先出牌
           this.currentPhase = GamePhase.Tribute;
+          
+          // 自动处理Bot进贡
+          this.processAutoTribute();
+          this.broadcastGameState();
           return;
       }
       
