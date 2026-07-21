@@ -58,7 +58,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
       {/* AI-generated background image */}
       <div className="absolute inset-0 pointer-events-none">
         <img src="/lobby-bg.png" alt="" className="w-full h-full object-cover opacity-30" />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a2e]/80 via-[#16213e]/70 to-[#0f0f1a]/90" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#181c1b]/85 via-[#2a2419]/80 to-[#181c1b]/90" />
       </div>
       {/* Subtle background pattern - card suit watermark */}
       <div className="absolute inset-0 pointer-events-none select-none overflow-hidden opacity-[0.03]">
@@ -81,7 +81,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
           ))}
         </div>
         <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-          <span className="text-[#569cd6]">Guan</span>
+          <span className="text-[#d2b59b]">Guan</span>
           <span className="text-[#ce9178]">Dan</span>
         </h1>
         <p className="text-[#6a9955] text-sm mt-2 font-mono">
@@ -94,7 +94,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
         {/* Join Form */}
         <form
           onSubmit={handleSubmit}
-          className="bg-[#252526] p-8 rounded-lg border border-[#333333] flex flex-col gap-5 w-80
+          className="bg-[#3c3528] p-8 rounded-lg border border-[#333333] flex flex-col gap-5 w-80
                      shadow-2xl shadow-black/30 transition-shadow duration-300 hover:shadow-black/50"
         >
           {/* Status bar mimic */}
@@ -107,7 +107,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
 
           {/* Game Mode Selector */}
           <div>
-            <label className="block text-[11px] font-mono uppercase tracking-wider mb-2 text-[#569cd6]">
+            <label className="block text-[11px] font-mono uppercase tracking-wider mb-2 text-[#d2b59b]">
               游戏模式
             </label>
             <div className="flex gap-2">
@@ -117,7 +117,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
                 className={`flex-1 py-2.5 rounded text-sm font-bold transition-all duration-200 ${
                   selectedVariant === GameVariant.FourPlayer
                     ? 'bg-[#0e639c] text-white shadow-lg shadow-[#0e639c]/30'
-                    : 'bg-[#1e1e1e] text-[#808080] border border-[#3c3c3c] hover:border-[#569cd6]'
+                    : 'bg-[#2a2419] text-[#808080] border border-[#3c3c3c] hover:border-[#d2b59b]'
                 }`}
               >
                 <div className="flex flex-col items-center gap-0.5">
@@ -131,7 +131,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
                 className={`flex-1 py-2.5 rounded text-sm font-bold transition-all duration-200 ${
                   selectedVariant === GameVariant.ThreePlayer
                     ? 'bg-[#5a8d3c] text-white shadow-lg shadow-[#5a8d3c]/30'
-                    : 'bg-[#1e1e1e] text-[#808080] border border-[#3c3c3c] hover:border-[#6a9955]'
+                    : 'bg-[#2a2419] text-[#808080] border border-[#3c3c3c] hover:border-[#6a9955]'
                 }`}
               >
                 <div className="flex flex-col items-center gap-0.5">
@@ -143,14 +143,14 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
           </div>
 
           <div>
-            <label className="block text-[11px] font-mono uppercase tracking-wider mb-2 text-[#569cd6]">
+            <label className="block text-[11px] font-mono uppercase tracking-wider mb-2 text-[#d2b59b]">
               Player Name
             </label>
             <input
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full bg-[#1e1e1e] border border-[#3c3c3c] p-2.5 rounded text-[#d4d4d4] text-sm
+              className="w-full bg-[#2a2419] border border-[#3c3c3c] p-2.5 rounded text-[#d4d4d4] text-sm
                          placeholder:text-[#5a5a5a] focus:outline-none focus:border-[#007acc] focus:ring-1 focus:ring-[#007acc]/30
                          transition-all duration-200"
               placeholder="输入用户名..."
@@ -160,14 +160,14 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
           </div>
 
           <div>
-            <label className="block text-[11px] font-mono uppercase tracking-wider mb-2 text-[#569cd6]">
+            <label className="block text-[11px] font-mono uppercase tracking-wider mb-2 text-[#d2b59b]">
               Room ID
             </label>
             <input
               type="text"
               value={roomId}
               onChange={e => setRoomId(e.target.value)}
-              className="w-full bg-[#1e1e1e] border border-[#3c3c3c] p-2.5 rounded text-[#d4d4d4] text-sm
+              className="w-full bg-[#2a2419] border border-[#3c3c3c] p-2.5 rounded text-[#d4d4d4] text-sm
                          placeholder:text-[#5a5a5a] focus:outline-none focus:border-[#007acc] focus:ring-1 focus:ring-[#007acc]/30
                          transition-all duration-200"
               placeholder="default"
@@ -211,10 +211,10 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
 
         {/* Room List */}
         {showRoomList && (
-          <div className="bg-[#252526] p-6 rounded-lg border border-[#333333] w-96 max-h-96 overflow-y-auto
+          <div className="bg-[#3c3528] p-6 rounded-lg border border-[#333333] w-96 max-h-96 overflow-y-auto
                           shadow-2xl shadow-black/30">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-mono font-bold text-[#569cd6] uppercase tracking-wider">
+              <h2 className="text-sm font-mono font-bold text-[#d2b59b] uppercase tracking-wider">
                 活跃房间
               </h2>
               <span className="text-[10px] text-[#5a5a5a] font-mono">
@@ -234,8 +234,8 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
                   <div
                     key={room.id}
                     onClick={() => handleQuickJoin(room.id)}
-                    className="group bg-[#1e1e1e] p-4 rounded border border-[#3c3c3c]
-                               hover:border-[#007acc] hover:bg-[#1e1e1e]/80
+                    className="group bg-[#2a2419] p-4 rounded border border-[#3c3c3c]
+                               hover:border-[#007acc] hover:bg-[#2a2419]/80
                                cursor-pointer transition-all duration-200
                                animate-[fadeIn_0.3s_ease-out_both]"
                     style={{ animationDelay: `${i * 60}ms` }}
@@ -275,7 +275,7 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
 
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-[#808080]">
-                        <span className="text-[#569cd6]">host:</span> {room.hostName}
+                        <span className="text-[#d2b59b]">host:</span> {room.hostName}
                       </span>
                       <span className="text-[#808080] font-mono">
                         {room.playerCount}/{room.maxPlayers}

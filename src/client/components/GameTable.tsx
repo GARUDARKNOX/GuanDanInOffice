@@ -508,16 +508,16 @@ export const GameTable: React.FC<Props> = ({
       <div className="absolute inset-20 border-2 border-[#333333] rounded-xl opacity-50 pointer-events-none"></div>
 
       <PlayerArea data={top} pos="top-4 left-1/2 -translate-x-1/2" />
-      {roomState.maxPlayers === 4 && <PlayerArea data={left} pos="left-8 top-1/2 -translate-y-1/2" />}
+      {(roomState.maxPlayers || 4) === 4 && <PlayerArea data={left} pos="left-8 top-1/2 -translate-y-1/2" />}
       <PlayerArea data={right} pos="right-8 top-1/2 -translate-y-1/2" />
       
       {/* Chat Box */}
-      <div className="absolute top-4 right-4 w-72 h-56 bg-[#252526] border border-[#333333] rounded flex flex-col pointer-events-auto z-10 shadow-lg">
+      <div className="absolute top-4 right-4 w-72 h-56 bg-[#3c3528] border border-[#333333] rounded flex flex-col pointer-events-auto z-10 shadow-lg">
           <div className="flex-1 overflow-y-auto p-2 text-sm text-[#d4d4d4] scrollbar-thin">
               {chatMessages.map((msg, i) => (
                   <div key={i} className="mb-1">
                       <span className="text-[#858585] text-xs">[{msg.time}] </span>
-                      <span className="font-bold text-[#569cd6]">{msg.sender}: </span>
+                      <span className="font-bold text-[#d2b59b]">{msg.sender}: </span>
                       <span className="break-words">{msg.text}</span>
                   </div>
               ))}
@@ -526,7 +526,7 @@ export const GameTable: React.FC<Props> = ({
           
           {/* Emoji Picker */}
           {showEmojiPicker && (
-              <div className="p-2 border-t border-[#333333] bg-[#1e1e1e] grid grid-cols-10 gap-1">
+              <div className="p-2 border-t border-[#333333] bg-[#2a2419] grid grid-cols-10 gap-1">
                   {quickEmojis.map((emoji, i) => (
                       <button 
                           key={i} 
@@ -535,7 +535,7 @@ export const GameTable: React.FC<Props> = ({
                               setChatInput(prev => prev + emoji);
                               setShowEmojiPicker(false);
                           }}
-                          className="text-lg hover:bg-[#3c3c3c] rounded p-1 transition-colors"
+                          className="text-lg hover:bg-[#4a4132] rounded p-1 transition-colors"
                       >
                           {emoji}
                       </button>
@@ -547,13 +547,13 @@ export const GameTable: React.FC<Props> = ({
               <button 
                   type="button" 
                   onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                  className="text-lg hover:bg-[#3c3c3c] rounded p-1"
+                  className="text-lg hover:bg-[#4a4132] rounded p-1"
                   title="表情"
               >
                   😊
               </button>
               <input 
-                  className="flex-1 bg-[#3c3c3c] border-none text-white text-sm focus:outline-none rounded px-2 py-1" 
+                  className="flex-1 bg-[#4a4132] border-none text-white text-sm focus:outline-none rounded px-2 py-1" 
                   placeholder="输入消息..." 
                   value={chatInput}
                   onChange={e => setChatInput(e.target.value)}
@@ -564,8 +564,8 @@ export const GameTable: React.FC<Props> = ({
 
       {gameState && (
           <div className="absolute top-4 left-4 flex flex-col gap-2 items-start z-50">
-              <div className="text-[#d4d4d4] font-bold text-xl bg-[#252526] border border-[#333333] px-4 py-2 rounded shadow-lg">
-                  <span className="text-[#569cd6]">const</span> <span className="text-[#9cdcfe]">Level</span> = <span className="text-[#b5cea8]">{gameState.level}</span>;
+              <div className="text-[#d4d4d4] font-bold text-xl bg-[#3c3528] border border-[#333333] px-4 py-2 rounded shadow-lg">
+                  <span className="text-[#d2b59b]">const</span> <span className="text-[#9cdcfe]">Level</span> = <span className="text-[#b5cea8]">{gameState.level}</span>;
               </div>
               
               {/* Host Force End Button */}
@@ -591,7 +591,7 @@ export const GameTable: React.FC<Props> = ({
                <div className="text-white text-xl">Waiting for players...</div>
                
                {/* Game Mode Toggle - Only host can change */}
-               <div className="flex items-center gap-4 bg-[#252526] px-4 py-2 rounded-lg border border-[#333333]">
+               <div className="flex items-center gap-4 bg-[#3c3528] px-4 py-2 rounded-lg border border-[#333333]">
                    <span className="text-[#9cdcfe] font-bold">模式:</span>
                    <button 
                        onClick={() => onSetGameMode?.(GameMode.Normal)}
@@ -820,7 +820,7 @@ export const GameTable: React.FC<Props> = ({
       {/* Hand Type Selection Modal (for wild cards) */}
       {showHandSelector && possibleHands.length > 0 && gameState && (
           <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
-              <div className="bg-[#252526] border border-[#333333] rounded-lg p-6 max-w-md shadow-2xl">
+              <div className="bg-[#3c3528] border border-[#333333] rounded-lg p-6 max-w-md shadow-2xl">
                   <h2 className="text-2xl font-bold text-[#9cdcfe] mb-4">选择牌型</h2>
                   <p className="text-gray-400 mb-4">您的牌包含红心{gameState.level}（万能牌），可以组成以下牌型：</p>
                   <div className="flex flex-col gap-3">
@@ -828,7 +828,7 @@ export const GameTable: React.FC<Props> = ({
                           <button
                               key={idx}
                               onClick={() => handleHandTypeSelect(hand)}
-                              className="bg-[#3c3c3c] hover:bg-[#4c4c4c] text-white px-6 py-3 rounded-lg font-bold transition-colors text-left"
+                              className="bg-[#4a4132] hover:bg-[#4c4c4c] text-white px-6 py-3 rounded-lg font-bold transition-colors text-left"
                           >
                               <div className="text-lg">{getHandDescription(hand, gameState.level)}</div>
                               <div className="text-sm text-gray-400 mt-1">
