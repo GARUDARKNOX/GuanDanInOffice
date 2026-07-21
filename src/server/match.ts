@@ -17,6 +17,7 @@ export class Match {
     currentGame: Game | null = null;
     teamLevels: { [key: number]: number } = { 0: 2, 1: 2 }; // Team 0 (seats 0,2) and Team 1 (seats 1,3)
     activeTeam: number = 0; // Which team is the banker (打庄)
+    level: number = 2; // 三人模式用的等级
     
     // Match end tracking
     consecutiveWins: { [key: number]: number } = { 0: 0, 1: 0 }; // Track consecutive wins at level A
@@ -71,6 +72,7 @@ export class Match {
         this.currentGame = new Game(this.io, this.roomId, gamePlayers, this.gameMode, this.gameVariant);
         this.currentGame.teamLevels = { ...this.teamLevels };
         this.currentGame.activeTeam = this.activeTeam;
+        this.currentGame.level = this.level; // 三人模式用
         this.currentGame.prevWinners = prevWinners;
         
         // Listen for game end
@@ -83,13 +85,48 @@ export class Match {
      * Handle end of a single game
      */
     handleGameEnd(winners: number[]) {
-        if (winners.length !== 4) {
+        const expectedWinners = this.gameVariant === GameVariant.ThreePlayer ? 3 : 4;
+        if (winners.length !== expectedWinners) {
             console.error(`[Match ${this.roomId}] Invalid winners array:`, winners);
             return;
         }
         
         console.log(`[Match ${this.roomId}] Game ended. Winners order: ${winners}`);
         
+        // 三人模式：头游+3级，直接用level字段
+        if (this.gameVariant === GameVariant.ThreePlayer) {
+            const firstWinner = winners[0];
+            const oldLevel = this.level;
+            this.level += 3;
+            if (this.level > 14) this.level = 14;
+            
+            console.log(`[Match ${this.roomId}] Player ${firstWinner} (头游) level: ${oldLevel} -> ${this.level} (+3)`);
+            
+            // 检查是否打过A
+            if (this.level >= 14) {
+                console.log(`[Match ${this.roomId}] Level A reached! Match continues until someone finishes at A.`);
+                // 三人模式打过A就赢
+                this.matchWinner = firstWinner;
+                this.broadcastMatchEnd(firstWinner);
+                return;
+            }
+            
+            // Store winners for next game's tribute phase
+            this.lastWinners = winners;
+            
+            // Auto-start next game
+            const timeout = setTimeout(() => {
+                try {
+                    console.log(`[Match ${this.roomId}] Auto-starting next game (3-player)...`);
+                    this.startNextGame();
+                } catch (e) {
+                    console.error(`[Match ${this.roomId}] Error auto-starting:`, e);
+                }
+            }, 3000);
+            return;
+        }
+        
+        // 四人模式（原有逻辑）
         // Calculate level up
         const { winningTeam, levelIncrease } = this.calculateLevelUp(winners);
         

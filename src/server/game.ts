@@ -42,7 +42,7 @@ export class Game {
   private isActive: boolean = true;
   private pendingTimeouts: NodeJS.Timeout[] = [];
   
-  hands: Card[][] = [[], [], [], []];
+  hands: Card[][] = [];
   currentTurn: number = 0;
   
   lastHand: { playerIndex: number, hand: Hand } | null = null;
@@ -69,8 +69,8 @@ export class Game {
   
   // Skill Mode
   gameMode: GameMode = GameMode.Normal;
-  skillCards: SkillCard[][] = [[], [], [], []];
-  skipNextTurn: boolean[] = [false, false, false, false];
+  skillCards: SkillCard[][] = [];
+  skipNextTurn: boolean[] = [];
   newCardIds: { [seat: number]: string[] } = {};
   
   // Game History
@@ -85,6 +85,12 @@ export class Game {
     this.gameMode = gameMode;
     this.gameVariant = gameVariant;
     this.numPlayers = gameVariant === GameVariant.ThreePlayer ? 3 : 4;
+    
+    // Initialize dynamically-sized arrays
+    this.hands = Array.from({ length: this.numPlayers }, () => []);
+    this.skillCards = Array.from({ length: this.numPlayers }, () => []);
+    this.skipNextTurn = new Array(this.numPlayers).fill(false);
+    this.newCardIds = {};
     
     // Setup listeners for human players
     this.players.forEach(p => {
@@ -180,7 +186,7 @@ export class Game {
   // Called by Room when restarting
   resetAndStart() {
       // Save winners
-      if (this.winners.length === 4) {
+      if (this.winners.length === this.numPlayers) {
           this.prevWinners = [...this.winners];
           this.handleLevelUp();
       }
@@ -261,6 +267,20 @@ export class Game {
   handleLevelUp() {
       if (this.prevWinners.length === 0) return;
       
+      if (this.gameVariant === GameVariant.ThreePlayer) {
+          // 三人模式：头游+3，二游+1，末游不变
+          // level 是头游的个人等级，不是队伍等级
+          const first = this.prevWinners[0];
+          const second = this.prevWinners[1];
+          const third = this.prevWinners[2];
+          // 头游升级最多，二游也升一点
+          // 三人模式用 level 字段，每次头游升3级
+          this.level += 3;
+          if (this.level > 14) this.level = 14;
+          return;
+      }
+      
+      // 四人模式（原有逻辑）
       const p1 = this.prevWinners[0];
       const p2 = this.prevWinners[1];
       const isSameTeam = (a: number, b: number) => (a % 2) === (b % 2);
@@ -287,6 +307,29 @@ export class Game {
   }
   
   initTributePhase() {
+      if (this.gameVariant === GameVariant.ThreePlayer) {
+          // 三人模式：末游向头游进贡
+          if (this.prevWinners.length < 3) {
+              this.currentPhase = GamePhase.Playing;
+              this.currentTurn = 0;
+              return;
+          }
+          const first = this.prevWinners[0];
+          const last = this.prevWinners[2];
+          
+          this.tributeState = { pendingTributes: [], pendingReturns: [] };
+          
+          // 末游向头游进贡
+          this.tributeState.pendingTributes.push({
+              from: last,
+              to: first,
+          });
+          this.tributeState.nextStartPlayer = last; // 末游先出牌
+          this.currentPhase = GamePhase.Tribute;
+          return;
+      }
+      
+      // 四人模式（原有逻辑）
       if (this.prevWinners.length < 4) {
           // First game or error, no tribute
           this.currentPhase = GamePhase.Playing;
@@ -318,17 +361,16 @@ export class Game {
           // Single Win (1,3 or 1,4)
           losingTeam = [p4]; // Only last place pays in Single Win? 
           // Rule: Single Win (1,3 same team) -> 4 pays 1.
-          // Rule: Tie (1,4 same team) -> 4 pays 1? Or no tribute?
-          // Standard: 
-          // Double Win: 4->1, 3->2.
-          // Single Win (1,3): 4->1.
-          // Tie (1,4): No tribute.
-          if (isSameTeam(p1, p4)) {
-             // Tie (1,4 same team) -> No tribute
-             this.currentPhase = GamePhase.Playing;
-             this.currentTurn = p1;
-             return;
-          }
+      }
+      // Standard: 
+      // Double Win: 4->1, 3->2.
+      // Single Win (1,3): 4->1.
+      // Tie (1,4): No tribute.
+      if (isSameTeam(p1, p4)) {
+         // Tie (1,4 same team) -> No tribute
+         this.currentPhase = GamePhase.Playing;
+         this.currentTurn = p1;
+         return;
       }
       
       // Count Big Jokers in Losing Team Hands
@@ -632,7 +674,8 @@ export class Game {
           this.winners.push(seatIndex);
           
           // Add history entry for player finish
-          const position = ['第一名', '第二名', '第三名', '第四名'][this.winners.length - 1];
+          const placeNames = ['第一名', '第二名', '第三名', '第四名'];
+          const position = placeNames[Math.min(this.winners.length - 1, placeNames.length - 1)];
           this.addHistoryEntry(
               HistoryEventType.PlayerFinish,
               `${this.players[seatIndex].name} 出完所有牌，获得${position}！`,
@@ -640,33 +683,33 @@ export class Game {
               { position: this.winners.length }
           );
           
-          // Check Double Win (First two winners are same team)
-          if (this.winners.length === 2) {
+          // Check Double Win (First two winners are same team) — only for 4-player
+          if (this.numPlayers === 4 && this.winners.length === 2) {
               const p1 = this.winners[0];
               const p2 = this.winners[1];
               if ((p1 % 2) === (p2 % 2)) {
                   // Double Win!
-                  const losers = [0, 1, 2, 3].filter(i => !this.winners.includes(i));
+                  const allIndices = Array.from({ length: this.numPlayers }, (_, i) => i);
+                  const losers = allIndices.filter(i => !this.winners.includes(i));
                   this.winners.push(...losers); 
                   this.endGame();
                   return;
               }
           }
           
-          // Check Any Team Finished (Both players of a team are in winners list)
-          // Since Double Win checks 1st/2nd, we just need to check if game should end when 3rd winner is determined?
-          // OR if Team A finishes at positions 1 and 3.
-          // OR if Team B finishes at positions 2 and 3? (Impossible if A took 1)
+          // 3-player mode: when 2 players finish, game ends (no teams)
+          if (this.numPlayers === 3 && this.winners.length === 2) {
+              const allIndices = Array.from({ length: this.numPlayers }, (_, i) => i);
+              const last = allIndices.find(i => !this.winners.includes(i))!;
+              this.winners.push(last);
+              this.endGame();
+              return;
+          }
           
-          // General Rule: If 3 players have finished, game MUST end.
-          // Because if 3 finished, at least one team has 2 members finished.
-          // Is it possible for a team to finish earlier?
-          // We checked 2 players above.
-          // So if 3 players finish, we are done.
-          
-          if (this.winners.length === 3) {
-              // 4th player is the loser
-              const last = [0, 1, 2, 3].find(i => !this.winners.includes(i))!;
+          // General Rule: If numPlayers-1 players have finished, game MUST end.
+          if (this.winners.length === this.numPlayers - 1) {
+              const allIndices = Array.from({ length: this.numPlayers }, (_, i) => i);
+              const last = allIndices.find(i => !this.winners.includes(i))!;
               this.winners.push(last);
               this.endGame();
               return;
@@ -807,13 +850,17 @@ export class Game {
           [pool[i], pool[j]] = [pool[j], pool[i]];
       }
       
-      // Deal 2 cards to each player (8 total, 2 left in pool)
-      this.skillCards = [[], [], [], []];
-      for (let i = 0; i < 4; i++) {
-          this.skillCards[i] = [pool[i * 2], pool[i * 2 + 1]];
+      // Deal 2 cards to each player
+      this.skillCards = Array.from({ length: this.numPlayers }, () => []);
+      const cardsPerPlayer = Math.min(2, Math.floor(pool.length / this.numPlayers));
+      for (let i = 0; i < this.numPlayers; i++) {
+          this.skillCards[i] = [];
+          for (let j = 0; j < cardsPerPlayer; j++) {
+              this.skillCards[i].push(pool[i * cardsPerPlayer + j]);
+          }
       }
       
-      console.log(`[Skill] Dealt skill cards in Skill mode`);
+      console.log(`[Skill] Dealt skill cards in Skill mode (${this.numPlayers} players)`);
   }
   
   generateRandomCard(): Card {
