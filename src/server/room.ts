@@ -357,11 +357,13 @@ class Room {
 
   broadcastState() {
     const playerList = this.players.map(p => p ? { id: p.id, name: p.name, seatIndex: p.seatIndex, isReady: p.isReady, isBot: p.isBot } : null);
+    const maxPlayers = this.gameVariant === GameVariant.ThreePlayer ? 3 : 4;
     this.io.to(this.id).emit('roomState', {
       roomId: this.id,
       players: playerList,
       gameMode: this.gameMode,
-      gameVariant: this.gameVariant
+      gameVariant: this.gameVariant,
+      maxPlayers
     });
   }
 }

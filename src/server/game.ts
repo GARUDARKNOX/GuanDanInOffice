@@ -825,6 +825,13 @@ export class Game {
               continue;
           }
           
+          // If we cycled back to the same player who just passed, all others are finished/skipped
+          if (next === prevTurn) {
+              console.log(`[advanceTurn] All other players finished, round ends for ${next}`);
+              this.endRoundAndFindNext(next);
+              return;
+          }
+          
           // Found valid player
           this.currentTurn = next;
           console.log(`[advanceTurn] Turn changed: ${prevTurn} -> ${next}.`);
