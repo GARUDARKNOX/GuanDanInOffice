@@ -551,12 +551,21 @@ class HandPlan {
         if (r < 7 || r > 14) continue; // 只配7以上的炸弹
         if (existingBombRanks.has(r)) continue; // 已有同rank炸弹不重复配
         const normals = cs.filter(c => !c.isWild);
-        if (normals.length >= 3 && normals.length < 4) { // 正好3张（4张已被提取为真炸）
-          const bombCards = [...normals.slice(0, 3), wilds()[0]];
-          const hand = getHandType(bombCards, level);
-          if (hand && hand.type === HandType.Bomb) {
-            result.push({ cards: bombCards, type: HandType.Bomb, value: hand.value });
-            bombCards.forEach(c => usedIds.add(c.id));
+        // 万能牌配炸弹：用所有normals + 足够万能牌凑成4+张炸弹
+        // 如: 3normals+1wild=4炸, 2normals+2wild=4炸, 2normals+3wild=5炸, etc.
+        if (normals.length >= 1 && normals.length < 4) {
+          const needWilds = Math.max(0, 4 - normals.length);
+          const maxWilds = Math.min(wilds().length, 8 - normals.length);
+          for (let wc = needWilds; wc <= maxWilds; wc++) {
+            if (wc === 0) continue;
+            const bombCards = [...normals];
+            for (let j = 0; j < wc; j++) bombCards.push(wilds()[j]);
+            const hand = getHandType(bombCards, level);
+            if (hand && hand.type === HandType.Bomb) {
+              result.push({ cards: bombCards, type: HandType.Bomb, value: hand.value });
+              bombCards.forEach(c => usedIds.add(c.id));
+              break; // 取最小的炸弹（少用万能牌）
+            }
           }
         }
       }
@@ -1173,6 +1182,24 @@ export class Bot {
       const h = getHandType(g.cards, this.level);
       return h && h.type === HandType.Single;
     });
+
+    // tracker驱动：对手双大王/大小王都有 → 避免出单张送控制权
+    if (this.tracker) {
+      const bjRem = this.tracker.getRemaining(Rank.BigJoker);
+      const sjRem = this.tracker.getRemaining(Rank.SmallJoker);
+      // 对手还有双大王，或一大一小 → 出单张会被对手拿控制权
+      if (bjRem >= 2 || (bjRem >= 1 && sjRem >= 1)) {
+        const nonSingle = this.findBestNonSingle();
+        if (nonSingle) return nonSingle;
+      }
+      // 对手大王小王都出完了 → 安全出单张拿控制权
+      if (bjRem === 0 && sjRem === 0 && mySingles.length > 0) {
+        // 出最大的单张拿控制权（对手没王了）
+        const biggestSingle = this.playBiggestSingle();
+        if (biggestSingle) return [biggestSingle[0]];
+      }
+    }
+
     if (mySingles.length > 0) {
       // 统计大小王数量，如果有2+张王，保持成对不拆
       const jokerCount = this.cards.filter(c => c.rank === Rank.SmallJoker || c.rank === Rank.BigJoker).length;
@@ -1624,6 +1651,23 @@ export class Bot {
         // 不拆牌，Pass
       } else {
         return this.pickSmallestBeat(allBeats, target);
+      }
+    }
+
+    // 自己和队友都无法管上这个牌型 → 考虑用炸弹夺回控制权
+    if (allBeats.length === 0 && preservingBeats.length === 0 && planBeat === null) {
+      const canBomb = this.findBomb(target);
+      if (canBomb) {
+        // 对手濒临走牌 → 阻断性炸
+        if (blockUrgency >= 1) return this.decideBomb(target, lastPlayerIndex);
+        // 对手出大牌(A/K以上)或顺子 → 炸了换适合自己牌型
+        if (target.value >= 14 || target.type === HandType.Straight) {
+          return this.decideBomb(target, lastPlayerIndex);
+        }
+        // 自己牌少(≤12张)且对手牌不多 → 炸了收尾
+        if (myCards <= 12 && enemyCards <= 8) {
+          return this.decideBomb(target, lastPlayerIndex);
+        }
       }
     }
 
