@@ -1136,6 +1136,40 @@ export class Bot {
     const myBombs = bombIdxs.size;
     const myCards = this.cards.length;
 
+    // ★ 终局冲刺：如果出完炸弹后剩余牌≤1手能走完，直接出炸弹冲头游
+    if (myBombs > 0) {
+      const bombGroups = myGroups.filter((_, i) => bombIdxs.has(i));
+      // 最小的炸弹
+      bombGroups.sort((a, b) => {
+        const ha = getHandType(a.cards, this.level);
+        const hb = getHandType(b.cards, this.level);
+        return (ha?.value || 0) - (hb?.value || 0);
+      });
+      if (bombGroups.length > 0) {
+        const smallestBomb = bombGroups[0];
+        const bombCardCount = smallestBomb.cards.length;
+        const remainingAfterBomb = myCards - bombCardCount;
+        // 出炸弹后剩0张 -> 直接走头游
+        if (remainingAfterBomb === 0) {
+          if (this.canPlay(smallestBomb.cards)) return smallestBomb.cards;
+        }
+        // 出炸弹后剩≤5张且全是1手 -> 炸了大概率能走
+        if (remainingAfterBomb > 0 && remainingAfterBomb <= 5) {
+          // 检查剩余牌是否是一手合法牌型
+          const remainingCards = this.cards.filter(c => !smallestBomb.cards.some(bc => bc.id === c.id));
+          const remainingHand = getHandType(remainingCards, this.level);
+          if (remainingHand && this.canPlay(smallestBomb.cards)) {
+            // 剩余是一手牌 -> 出炸弹冲头游
+            return smallestBomb.cards;
+          }
+          // 剩余虽不是一手但很少(≤3张) -> 也冲
+          if (remainingAfterBomb <= 3 && this.canPlay(smallestBomb.cards)) {
+            return smallestBomb.cards;
+          }
+        }
+      }
+    }
+
     // 按牌型分组，找"有大小两组"的类型（出小留大收回）
     const typeMap = new Map<HandType, { cards: Card[]; value: number; index: number }[]>();
     for (let i = 0; i < nonBombGroups.length; i++) {
@@ -1625,6 +1659,28 @@ export class Bot {
     // 先看规划组
     const planBeat = this.findPlanBeat(target);
     if (planBeat) return planBeat;
+
+    // ★ 终局冲刺：如果用炸弹跟牌后剩余牌≤1手能走完，直接炸冲头游
+    const myBombs = this.countMyBombs();
+    if (myBombs > 0 && myCards <= 10) {
+      const bomb = this.findBomb(target);
+      if (bomb) {
+        const remainingAfterBomb = myCards - bomb.length;
+        if (remainingAfterBomb === 0) {
+          return bomb; // 炸了直接走
+        }
+        if (remainingAfterBomb > 0 && remainingAfterBomb <= 5) {
+          const remainingCards = this.cards.filter(c => !bomb.some(bc => bc.id === c.id));
+          const remainingHand = getHandType(remainingCards, this.level);
+          if (remainingHand) {
+            return bomb; // 剩余是一手牌 -> 炸了冲
+          }
+          if (remainingAfterBomb <= 3) {
+            return bomb; // 剩很少也冲
+          }
+        }
+      }
+    }
 
     // 再看规划感知跟牌（不拆规划组）
     const preservingBeats = this.findAllBeatsPreservingPlan(target);
