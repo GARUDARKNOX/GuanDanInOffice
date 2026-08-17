@@ -1739,21 +1739,21 @@ export class Bot {
       const bomb = this.findBomb(target);
       if (bomb) {
         const remainingAfterBomb = myCards - bomb.length;
-        // 炸了直接走完 -> 必炸
+        // 炸了直接走完 -> 必炸（直接出炸弹，不走decideBomb保守逻辑）
         if (remainingAfterBomb === 0) {
-          return this.decideBomb(target, lastPlayerIndex);
+          return bomb;
         }
         // 炸后剩余正好是一手合法牌型 -> 炸了冲（炸弹保底最后走）
         if (remainingAfterBomb > 0 && remainingAfterBomb <= 5) {
           const remainingCards = this.cards.filter(c => !bomb.some(bc => bc.id === c.id));
           const remainingHand = getHandType(remainingCards, this.level);
           if (remainingHand) {
-            return this.decideBomb(target, lastPlayerIndex);
+            return bomb;
           }
         }
         // 炸后剩余≤3张散牌 -> 也值得炸
         if (remainingAfterBomb > 0 && remainingAfterBomb <= 3) {
-          return this.decideBomb(target, lastPlayerIndex);
+          return bomb;
         }
       }
     }
