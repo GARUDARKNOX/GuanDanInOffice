@@ -1,6 +1,15 @@
 import { getHandType, getAllPossibleHandTypes, compareHands, sortCards, getLogicValue, isConsecutive } from './rules';
 import { Rank, Card, Hand, HandType, Suit } from './types';
 
+/** 炸弹强度：张数优先，点数次要（6炸>5炸>4炸，同张数比点数）；同花顺/天王炸特殊处理 */
+function bombStrength(g: { cards: Card[]; type: HandType; value: number }, level: number): number {
+  const h = getHandType(g.cards, level);
+  if (!h) return 0;
+  if (h.type === HandType.FourKings) return 10000;
+  if (h.type === HandType.StraightFlush) return 5000 + h.value;
+  return (h.bombCount || 4) * 1000 + h.value;
+}
+
 // ---- 全局牌追踪器（108张牌，两副标准扑克） ----
 
 /* ... CardTracker class ... */
@@ -682,10 +691,12 @@ class HandPlan {
       if (valid) addCandidate(seq);
     }
 
-    // 连对/钢板（Tube）：3个连续对子，支持逢人配补对子
-    const tubeStarts = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
+    // 连对/钢板（Tube）：3个连续对子，排除级牌（级牌留作控制牌）
+    const tubeStarts = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]; // 不含2(级牌)和14(A-2-3轮子)
     for (const start of tubeStarts) {
-      const ranks = start === 14 ? [14, 2, 3] : [start, start + 1, start + 2];
+      const ranks = [start, start + 1, start + 2];
+      // 跳过包含级牌的窗口
+      if (ranks.includes(level)) continue;
       const tubeCards: Card[] = [];
       let wildUsed = 0;
       let valid = true;
@@ -1190,12 +1201,8 @@ export class Bot {
     // ★ 终局冲刺：如果出完炸弹后剩余牌≤1手能走完，直接出炸弹冲头游
     if (myBombs > 0) {
       const bombGroups = myGroups.filter((_, i) => bombIdxs.has(i));
-      // 最小的炸弹
-      bombGroups.sort((a, b) => {
-        const ha = getHandType(a.cards, this.level);
-        const hb = getHandType(b.cards, this.level);
-        return (ha?.value || 0) - (hb?.value || 0);
-      });
+      // 最弱的炸弹（按强度：张数优先，点数次要）
+      bombGroups.sort((a, b) => bombStrength(a, this.level) - bombStrength(b, this.level));
       if (bombGroups.length > 0) {
         const smallestBomb = bombGroups[0];
         const bombCardCount = smallestBomb.cards.length;
@@ -1380,14 +1387,10 @@ export class Bot {
       }
     }
 
-    // 7. 实在没牌出了，出炸弹（从小的开始）
+    // 7. 实在没牌出了，出炸弹（从最弱开始：张数少优先）
     if (myBombs > 0) {
       const bombGroups = myGroups.filter((_, i) => bombIdxs.has(i));
-      bombGroups.sort((a, b) => {
-        const ha = getHandType(a.cards, this.level);
-        const hb = getHandType(b.cards, this.level);
-        return (ha?.value || 0) - (hb?.value || 0);
-      });
+      bombGroups.sort((a, b) => bombStrength(a, this.level) - bombStrength(b, this.level));
       if (bombGroups.length > 0 && this.canPlay(bombGroups[0].cards)) {
         return bombGroups[0].cards;
       }
@@ -1729,6 +1732,31 @@ export class Bot {
     // 先看规划组
     const planBeat = this.findPlanBeat(target);
     if (planBeat) return planBeat;
+
+    // ★ 终局冲刺（跟牌）：如果炸后剩余牌≤1手或很少，直接炸了冲头游
+    // 与自由出牌的 findControllingPlay 对应，避免"剩炸弹+散牌却不炸"
+    if (this.countMyBombs() > 0 && myCards <= 12) {
+      const bomb = this.findBomb(target);
+      if (bomb) {
+        const remainingAfterBomb = myCards - bomb.length;
+        // 炸了直接走完 -> 必炸
+        if (remainingAfterBomb === 0) {
+          return this.decideBomb(target, lastPlayerIndex);
+        }
+        // 炸后剩余正好是一手合法牌型 -> 炸了冲（炸弹保底最后走）
+        if (remainingAfterBomb > 0 && remainingAfterBomb <= 5) {
+          const remainingCards = this.cards.filter(c => !bomb.some(bc => bc.id === c.id));
+          const remainingHand = getHandType(remainingCards, this.level);
+          if (remainingHand) {
+            return this.decideBomb(target, lastPlayerIndex);
+          }
+        }
+        // 炸后剩余≤3张散牌 -> 也值得炸
+        if (remainingAfterBomb > 0 && remainingAfterBomb <= 3) {
+          return this.decideBomb(target, lastPlayerIndex);
+        }
+      }
+    }
 
     // 再看规划感知跟牌（不拆规划组）
     const preservingBeats = this.findAllBeatsPreservingPlan(target);
@@ -2425,15 +2453,6 @@ export class Bot {
       map.get(r)!.push(c);
     }
     return new Map([...map.entries()].sort((a, b) => a[0] - b[0]));
-  }
-
-  /** 炸弹强度：张数优先，点数次要（6炸>5炸>4炸，同张数比点数）；同花顺/天王炸特殊处理 */
-  private bombStrength(g: { cards: Card[]; type: HandType; value: number }): number {
-    const h = getHandType(g.cards, this.level);
-    if (!h) return 0;
-    if (h.type === HandType.FourKings) return 10000;
-    if (h.type === HandType.StraightFlush) return 5000 + h.value;
-    return (h.bombCount || 4) * 1000 + h.value;
   }
 
   private cardsAfter(played: Card[]): Card[] {
