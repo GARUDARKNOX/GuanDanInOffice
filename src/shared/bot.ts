@@ -1765,11 +1765,16 @@ export class Bot {
 
     // ★ 主动炸弹（抢控制/断节奏/压大牌）：即使能跟牌，也值得炸
     // 放在 planBeat 之前，中前期也触发
+    // 但先检查能否用规划牌便宜跟牌——能跟则优先跟，不浪费炸弹
     if (this.countMyBombs() > 0 && !isAllyNext && !(target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings)) {
-      const bomb = this.findBomb(target);
-      if (bomb) {
-        const bombPlay = this.decideBomb(target, lastPlayerIndex);
-        if (bombPlay) return bombPlay; // decideBomb 判定该炸
+      // 用最小/规划牌能跟的话，优先跟而非炸（节省炸弹）
+      const canAffordBeat = this.findPlanBeat(target) || (this.findAllBeatsPreservingPlan(target).length > 0);
+      if (!canAffordBeat) {
+        const bomb = this.findBomb(target);
+        if (bomb) {
+          const bombPlay = this.decideBomb(target, lastPlayerIndex);
+          if (bombPlay) return bombPlay; // decideBomb 判定该炸
+        }
       }
     }
 
@@ -2121,8 +2126,9 @@ export class Bot {
 
     // 2. 打断对手节奏：对手连续拿控制权（对手牌比我们少或快走），炸断
     //    判断：下家/出牌者濒临走牌(≤10张) 且 我方有机会反超
+    //    且对手出中高牌(≥11)才炸——单5/小牌用普通牌跟省炸
     if (myBombs >= 1 && !isBomb) {
-      if (enemyCards <= 10 && myCards <= enemyCards + 3 && myStrength >= 25) {
+      if (enemyCards <= 10 && myCards <= enemyCards + 3 && myStrength >= 25 && target.value >= 11) {
         // 对手牌少且我方牌力尚可 → 用炸弹夺回控制，避免对手连续出
         return this.findBomb(target);
       }
