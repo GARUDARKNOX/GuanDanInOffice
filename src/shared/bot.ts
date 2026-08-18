@@ -2092,8 +2092,10 @@ export class Bot {
       if (this.countMyBombs() >= 1) return this.findBomb(target);
     }
 
-    // 自己剩>15张 → 不浪费炸弹
-    if (myCards > 15) return null;
+    // 自己剩>15张 → 一般不浪费炸弹，但对手出大牌(≥13)且我有≥2炸时仍可炸
+    if (myCards > 15) {
+      if (!(target.value >= 13 && this.countMyBombs() >= 2)) return null;
+    }
 
     // ★ 手牌几乎全是炸弹（非炸弹≤2张）-> 果断炸，跳过保守逻辑
     const nonBombCnt = this.cards.filter(c => this.countSameRank(c.rank) < 4).length;
@@ -2112,12 +2114,17 @@ export class Bot {
     });
 
     // 1. 抢回出牌权：我有能一手走掉的成型牌，对手压了我的牌型，炸了拿回控制
-    //    判断：对手濒临走牌(≤8) 或 我方牌不多(≤10)，且对手出大牌(≥11)
+    //    判断：对手濒临走牌(≤8) 或 我方牌不多(≤10) 或 对手出大牌(≥13)且我有≥2炸
     if (myBombs >= 1 && !isBomb) {
       const playableGroups = this.handPlan.groups.length - this.handPlan.getBombIndices().size;
-      // 对手快走或我方牌少时，才值得用炸弹抢控制
-      if ((enemyCards <= 8 || myCards <= 10) && playableGroups >= 2 && myStrength >= 25) {
-        // 对手出中高牌(≥11, Q以上)才炸，能用普通牌跟的用牌跟省炸
+      // 关键时机：
+      // a) 对手快走或我方牌少 -> 值得抢控制
+      // b) 中前期对手出大牌(K/A/级牌/王≥13) 且我有≥2炸弹且牌力强 -> 主动炸压大牌
+      const opponentBigPlay = target.value >= 13;
+      const strongControl = (enemyCards <= 8 || myCards <= 10);
+      const midGameBigCard = opponentBigPlay && myBombs >= 2 && myStrength >= 30;
+      if ((strongControl || midGameBigCard) && playableGroups >= 2) {
+        // 对手出中高牌(≥11)才炸，能用普通牌跟的用牌跟省炸
         if (target.value >= 11) {
           return this.findBomb(target);
         }
