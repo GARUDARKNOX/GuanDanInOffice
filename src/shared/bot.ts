@@ -1669,8 +1669,8 @@ export class Bot {
   private decideAllyFollow(target: Hand, lastPlayerIndex: number): Card[] | null {
     const partner = this.partnerIdx();
     if (lastPlayerIndex === partner) {
-      // 队友出最后一手走牌 -> 不压
-      if (this.handsInfo[partner] <= target.cards.length) return null;
+      // 队友已出完走牌（剩0张）-> 不压
+      if (this.handsInfo[partner] === 0) return null;
 
       // 队友出炸弹/同花顺/天王炸 -> 绝对不压（不能炸队友）
       const targetIsBomb = target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings;
@@ -1836,6 +1836,13 @@ export class Bot {
         score += hand.value;
         if (hand.type === HandType.Bomb || hand.type === HandType.StraightFlush) score += 100;
         if (hand.type === HandType.FourKings) score += 500;
+      }
+      // ★ 惩罚：用了级牌/大牌(K,A,王)压牌 → 浪费控制牌，加分（更差）
+      // 三带二/三条优先用小的三条，保留级牌和大牌控制
+      for (const c of cards) {
+        if (c.isWild || c.rank === this.level) score += 30;       // 级牌/万能牌是控制牌，尽量不用
+        else if (c.rank === Rank.BigJoker || c.rank === Rank.SmallJoker) score += 40;
+        else if (c.rank === Rank.Ace || c.rank === Rank.King) score += 10; // A/K也算大牌
       }
       const remaining = this.cardsAfter(cards);
       score -= remaining.length * 0.3;
@@ -2197,7 +2204,10 @@ export class Bot {
             const pair = this.findPairExcluding(t);
             if (pair) {
               const combined = [...t, ...pair];
-              if (matchesPlan(combined)) result.push(combined);
+              // 三带二的对子可灵活搭配，只要三条部分保留在plan中即可
+              // 放宽：不强制 matchesPlan(combined)，只要三条部分不拆坏plan的牌型
+              const tripInPlan = planGroups.has('TripsWithPair:' + tVal) || planGroups.has('Trips:' + tVal);
+              if (tripInPlan) result.push(combined);
             }
           }
         }
