@@ -1748,6 +1748,21 @@ export class Bot {
     const isUpperEnemy = lastPlayerIndex === (this.seatIndex + 3) % 4;
     const isLowerEnemy = lastPlayerIndex === (this.seatIndex + 1) % 4;
 
+    // ★ 一套走人保护：手牌可一把走完时，不要拆散它去跟小牌
+    // 例: 只剩 999+22(一套三带二), 对手出对44 -> 不应拆99或22
+    // 如果手牌整体能组成一套合法牌型，且对手出的牌型与之不同/压不过，就Pass保留
+    const wholeHand = this.tryPlayAll();
+    if (wholeHand) {
+      // 手牌能一把走完（如一套三带二/顺子/钢板）
+      // 如果对手出的牌型能用整套压（同类型且更大），可以整套跟；否则保留等机会
+      const wholeType = getHandType(wholeHand, this.level)?.type;
+      const canWholeBeat = wholeType === target.type; // 同类型才能整套跟（非炸弹）
+      if (!canWholeBeat) {
+        // 对手出不同牌型，拆了会破坏一套走人 -> 直接Pass保留
+        return null;
+      }
+    }
+
     // 枪不打四：对家剩4张，不是炸弹就不炸
     // 对家剩8张：不炸（三套牌炸不完）
     // 这些在 decideBomb 里处理，这里跳过
@@ -2565,11 +2580,17 @@ export class Bot {
     if (tBomb) {
       const tCount = target.bombCount || 4;
       const tVal = target.value;
+      // 优先找同张数且点数更大的（经济，不浪费大炸）
+      // 例: 对手7777(4炸), 我有8888(4炸)和444444(6炸) -> 用8888省6炸
       for (const b of bombs) {
-        if (b.cards.length > tCount) return b.cards;
         if (b.cards.length === tCount && b.value > tVal) return b.cards;
       }
-      if (tCount <= 5 && sfs.length > 0) return sfs[0].cards;
+      // 同张数没有能压的，才找张数更多的
+      for (const b of bombs) {
+        if (b.cards.length > tCount) return b.cards;
+      }
+      // 张数更多也没有，用同花顺/天王炸
+      if (sfs.length > 0) return sfs[0].cards;
       if (kings) return kings;
     }
 
@@ -2679,11 +2700,18 @@ export class Bot {
       pairs.push({ cards: cur.slice(0, 2), disruption });
     }
     if (pairs.length === 0) return null;
-    pairs.sort((a, b) => {
+    // ★ 排除会拆炸弹的对子（4+张同rank的对子不能作为配对子，炸弹必须保留）
+    const safePairs = pairs.filter(p => {
+      const rank = p.cards[0].rank;
+      const cnt = this.countSameRank(rank);
+      return cnt < 4; // 4+张是炸弹，不拆
+    });
+    const candidates = safePairs.length > 0 ? safePairs : pairs;
+    candidates.sort((a, b) => {
       if (a.disruption !== b.disruption) return a.disruption - b.disruption;
       return getLogicValue(a.cards[0].rank, this.level) - getLogicValue(b.cards[0].rank, this.level);
     });
-    return pairs[0].cards;
+    return candidates[0].cards;
   }
 
   private findPairExcludingByRank(exclude: Card[], groups: Map<number, Card[]>): Card[] | null {
