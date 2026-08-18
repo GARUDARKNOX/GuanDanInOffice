@@ -2145,13 +2145,15 @@ export class Bot {
         const key = c.suit + ':' + c.rank;
         needed.set(key, (needed.get(key) || 0) + 1);
       }
+      // 宽松检查：只要这手牌不拆散某个 plan 组的"骨架"，就算匹配
+      // 对子可取自三带二附属、三条可取自钢板附属等
+      // 规则：如果 cards 完全由某个 plan 组的牌构成（子集），允许
       for (const [, planNeeded] of planGroups) {
-        let match = true;
-        if (planNeeded.size !== needed.size) continue;
+        let subset = true;
         for (const [key, count] of needed) {
-          if (planNeeded.get(key) !== count) { match = false; break; }
+          if ((planNeeded.get(key) || 0) < count) { subset = false; break; }
         }
-        if (match) return true;
+        if (subset) return true; // cards 是某个 plan 组的子集，不拆散该组
       }
       return false;
     };
@@ -2177,7 +2179,13 @@ export class Bot {
           if (val > target.value) {
             const groupSize = this.countSameRank(pair[0].rank);
             if (groupSize >= 4) continue; // 炸弹绝对不拆
-            if (matchesPlan(pair)) result.push(pair);
+            const r = pair[0].rank;
+            // 对子可在plan中存在：独立Pair 或 三带二附属对子 或 连对/钢板的一部分
+            const inPlan = planGroups.has('Pair:' + val)
+              || planGroups.has('TripsWithPair:' + val)
+              || planGroups.has('Tube:' + val)
+              || planGroups.has('Plate:' + val);
+            if (inPlan) result.push(pair);
           }
         }
         break;
@@ -2189,7 +2197,12 @@ export class Bot {
           if (val > target.value) {
             const groupSize = this.countSameRank(t[0].rank);
             if (groupSize >= 4) continue; // 炸弹绝对不拆
-            if (matchesPlan(t)) result.push(t);
+            const r = t[0].rank;
+            // 三条可在plan中存在：独立Trips 或 三带二的三条 或 钢板的一部分
+            const inPlan = planGroups.has('Trips:' + val)
+              || planGroups.has('TripsWithPair:' + val)
+              || planGroups.has('Plate:' + val);
+            if (inPlan) result.push(t);
           }
         }
         break;
@@ -2201,13 +2214,15 @@ export class Bot {
           if (tVal > target.value) {
             const groupSize = this.countSameRank(t[0].rank);
             if (groupSize >= 4) continue; // 炸弹绝对不拆
+            // 三条部分必须在 plan 中存在（独立三条 或 三带二/钢板的三条），避免拆散规划
+            const tripInPlan = planGroups.has('TripsWithPair:' + tVal)
+              || planGroups.has('Trips:' + tVal)
+              || planGroups.has('Plate:' + tVal);
+            if (!tripInPlan) continue;
             const pair = this.findPairExcluding(t);
             if (pair) {
-              const combined = [...t, ...pair];
-              // 三带二的对子可灵活搭配，只要三条部分保留在plan中即可
-              // 放宽：不强制 matchesPlan(combined)，只要三条部分不拆坏plan的牌型
-              const tripInPlan = planGroups.has('TripsWithPair:' + tVal) || planGroups.has('Trips:' + tVal);
-              if (tripInPlan) result.push(combined);
+              // 对子自由配最小非级牌对子（findPairExcluding已优先不拆散、级牌靠pickSmallest惩罚）
+              result.push([...t, ...pair]);
             }
           }
         }
