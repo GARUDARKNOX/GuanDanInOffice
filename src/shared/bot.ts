@@ -747,9 +747,9 @@ class HandPlan {
     switch (grp.type) {
       case HandType.TripsWithPair: score += 25; break;
       case HandType.Trips:         score += 12; break;
-      case HandType.Tube:          score += 15; break;
+      case HandType.Tube:          score += 18; break;
       case HandType.Straight:      score += 28; break; // 顺子优先级最高，5张变1轮
-      case HandType.Plate:         score += 20; break;
+      case HandType.Plate:         score += 35; break; // 钢板6张1手，高于三带二
       case HandType.Pair:          score += 5;  break;
       case HandType.Single:        score += 0;  break;
       case HandType.Bomb:          score += 0;  break;
@@ -760,9 +760,12 @@ class HandPlan {
       const pairRank = grp.cards[3].rank;
       const pairVal = getLogicValue(pairRank, level);
       const tripVal = grp.value;
-      // 大对子配小三张扣分，小三张配大对子更扣分
-      if (pairVal > tripVal) score -= 15; // 大对子配小三张
-      // 级牌不当对子已在候选生成时跳过
+      // 级牌三条配大对子(K/A) → 重罚，级牌和KK都应留作控制
+      if (grp.value >= 15 || pairVal >= 13) {
+        score -= 30; // 级牌三条/大对子配三带二是浪费
+      }
+      // 大对子配小三张扣分
+      if (pairVal > tripVal) score -= 15;
       const pairCnt = remaining.filter(c => c.rank === pairRank).length;
       if (pairCnt === 3) score -= 12; // 拆了三条
     }
@@ -1278,16 +1281,19 @@ export class Bot {
       }
     }
 
-    // 2. 顺子/连对：清牌效率最高(5-6张1手)，优先出
-    //    掼蛋大师思路：先出成型的顺子/连对减少手数
+    // 2. 顺子/连对/钢板：清牌效率高(5-6张1手)，优先出
+    //    掼蛋大师思路：先出成型的顺子/连对/钢板减少手数
     const mySequences = nonBombGroups.filter(g => {
       const h = getHandType(g.cards, this.level);
-      return h && (h.type === HandType.Straight || h.type === HandType.Tube);
+      return h && (h.type === HandType.Straight || h.type === HandType.Tube || h.type === HandType.Plate);
     });
     if (mySequences.length > 0) {
+      // 钢板/连对/顺子都是清牌效率高的组合，按张数降序（优先出6张的钢板/连对）
       mySequences.sort((a, b) => {
         const ha = getHandType(a.cards, this.level);
         const hb = getHandType(b.cards, this.level);
+        // 张数多优先（清牌更多），同张数比value小优先
+        if (a.cards.length !== b.cards.length) return b.cards.length - a.cards.length;
         return (ha?.value || 0) - (hb?.value || 0);
       });
       if (this.canPlay(mySequences[0].cards)) return mySequences[0].cards;
