@@ -1278,45 +1278,84 @@ export class Bot {
       }
     }
 
-    // 2. 单张：大牌留着收回，出小牌探路
-    // 大小王不轻易出，留着控制；2张王时保持成对（天王炸潜力）
+    // 2. 顺子/连对：清牌效率最高(5-6张1手)，优先出
+    //    掼蛋大师思路：先出成型的顺子/连对减少手数
+    const mySequences = nonBombGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && (h.type === HandType.Straight || h.type === HandType.Tube);
+    });
+    if (mySequences.length > 0) {
+      mySequences.sort((a, b) => {
+        const ha = getHandType(a.cards, this.level);
+        const hb = getHandType(b.cards, this.level);
+        return (ha?.value || 0) - (hb?.value || 0);
+      });
+      if (this.canPlay(mySequences[0].cards)) return mySequences[0].cards;
+    }
+
+    // 3. 对子：情况不明对子先行，出最小的
+    const myPairs = nonBombGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && h.type === HandType.Pair;
+    });
+    if (myPairs.length > 0) {
+      myPairs.sort((a, b) => {
+        const ha = getHandType(a.cards, this.level);
+        const hb = getHandType(b.cards, this.level);
+        return (ha?.value || 0) - (hb?.value || 0);
+      });
+      if (this.canPlay(myPairs[0].cards)) return myPairs[0].cards;
+    }
+
+    // 4. 三带二：消耗5张，清牌效率高
+    const myTripsWithPair = nonBombGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && h.type === HandType.TripsWithPair;
+    });
+    if (myTripsWithPair.length > 0) {
+      myTripsWithPair.sort((a, b) => {
+        const ha = getHandType(a.cards, this.level);
+        const hb = getHandType(b.cards, this.level);
+        return (ha?.value || 0) - (hb?.value || 0);
+      });
+      if (this.canPlay(myTripsWithPair[0].cards)) return myTripsWithPair[0].cards;
+    }
+
+    // 5. 单张：大牌留着收回，出小牌探路
+    // 散单张最难回收，掼蛋大师原则是留到最后出
     const mySingles = nonBombGroups.filter(g => {
       const h = getHandType(g.cards, this.level);
       return h && h.type === HandType.Single;
     });
 
     // tracker驱动：对手双大王/大小王都有 → 避免出单张送控制权
-    if (this.tracker) {
+    if (this.tracker && mySingles.length > 0) {
       const bjRem = this.getEnemyRemaining(Rank.BigJoker);
       const sjRem = this.getEnemyRemaining(Rank.SmallJoker);
-      // 对手还有双大王，或一大一小 → 出单张会被对手拿控制权
       if (bjRem >= 2 || (bjRem >= 1 && sjRem >= 1)) {
         const nonSingle = this.findBestNonSingle();
         if (nonSingle) return nonSingle;
       }
-      // 对手大王小王都出完了 → 单张不再有王能压，正常走小牌优先逻辑即可
     }
 
     if (mySingles.length > 0) {
       // 统计大小王数量，如果有2+张王，保持成对不拆
       const jokerCount = this.cards.filter(c => c.rank === Rank.SmallJoker || c.rank === Rank.BigJoker).length;
-      const keepJokers = jokerCount >= 2; // 2张王保持成对
+      const keepJokers = jokerCount >= 2;
 
       // ★ 按从小到大排序：先出小牌探路，大牌留着控制
       const sortedSingles = mySingles.sort((a, b) => {
         const va = getLogicValue(a.cards[0].rank, this.level);
         const vb = getLogicValue(b.cards[0].rank, this.level);
-        return va - vb; // 升序：小到大
+        return va - vb;
       });
       // 第一轮：出小牌探路（跳过大小王等控制牌）
       for (const s of sortedSingles) {
         const c = s.cards[0];
         const val = getLogicValue(c.rank, this.level);
-        // 大小王是控制牌，留着
         if (c.rank === Rank.BigJoker || c.rank === Rank.SmallJoker) {
           if (myCards > 3 && (keepJokers || myCards > 4)) continue;
         }
-        // 只剩2张单张时A留着控制
         if (val >= 14 && mySingles.length <= 2) continue;
         if (this.canPlay(s.cards)) return s.cards;
       }
@@ -1333,55 +1372,13 @@ export class Bot {
       return sortedSingles[0].cards;
     }
 
-    // 3. 对子：出最小的
-    const myPairs = nonBombGroups.filter(g => {
-      const h = getHandType(g.cards, this.level);
-      return h && h.type === HandType.Pair;
-    });
-    if (myPairs.length > 0) {
-      myPairs.sort((a, b) => {
-        const ha = getHandType(a.cards, this.level);
-        const hb = getHandType(b.cards, this.level);
-        return (ha?.value || 0) - (hb?.value || 0);
-      });
-      if (this.canPlay(myPairs[0].cards)) return myPairs[0].cards;
-    }
-
-    // 4. 三带二：小的三张配小的对子
-    const myTripsWithPair = nonBombGroups.filter(g => {
-      const h = getHandType(g.cards, this.level);
-      return h && h.type === HandType.TripsWithPair;
-    });
-    if (myTripsWithPair.length > 0) {
-      myTripsWithPair.sort((a, b) => {
-        const ha = getHandType(a.cards, this.level);
-        const hb = getHandType(b.cards, this.level);
-        return (ha?.value || 0) - (hb?.value || 0);
-      });
-      if (this.canPlay(myTripsWithPair[0].cards)) return myTripsWithPair[0].cards;
-    }
-
-    // 5. 顺子/连对
-    const mySequences = nonBombGroups.filter(g => {
-      const h = getHandType(g.cards, this.level);
-      return h && (h.type === HandType.Straight || h.type === HandType.Tube);
-    });
-    if (mySequences.length > 0) {
-      mySequences.sort((a, b) => {
-        const ha = getHandType(a.cards, this.level);
-        const hb = getHandType(b.cards, this.level);
-        return (ha?.value || 0) - (hb?.value || 0);
-      });
-      if (this.canPlay(mySequences[0].cards)) return mySequences[0].cards;
-    }
-
-    // 6. 最后出最小单张（排除大小王）
+    // 6. 最后出最小单张（排除大小王）- 兜底
     for (const g of nonBombGroups) {
       const h = getHandType(g.cards, this.level);
       if (h && h.type === HandType.Single && this.canPlay(g.cards)) {
         const c = g.cards[0];
         if (c.rank === Rank.BigJoker || c.rank === Rank.SmallJoker) {
-          if (myCards > 3) continue; // 留着控制
+          if (myCards > 3) continue;
         }
         return g.cards;
       }
