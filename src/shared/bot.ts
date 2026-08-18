@@ -710,15 +710,15 @@ class HandPlan {
       const ranks = [start, start + 1, start + 2];
       // 跳过包含级牌的窗口
       if (ranks.includes(level)) continue;
+      // ★ 只用恰好2张的rank组连对，不拆3张的三条（三条该配三带二）
+      // 例如 QQQ JJ 1010 -> 只用 JJ 1010，QQ 保留成三条
       const tubeCards: Card[] = [];
-      let wildUsed = 0;
       let valid = true;
       for (const r of ranks) {
-        const normals = (g.get(r) || []).filter(c => !c.isWild).slice(0, 2);
-        tubeCards.push(...normals);
-        const need = 2 - normals.length;
-        if (wildUsed + need > wilds.length) { valid = false; break; }
-        for (let i = 0; i < need; i++) tubeCards.push(wilds[wildUsed++]);
+        const normals = (g.get(r) || []).filter(c => !c.isWild);
+        if (normals.length < 2) { valid = false; break; }
+        if (normals.length > 2) { valid = false; break; } // 3+张不拆
+        tubeCards.push(...normals.slice(0, 2));
       }
       if (valid) addCandidate(tubeCards);
     }
@@ -1213,6 +1213,18 @@ export class Bot {
     const nonBombGroups = myGroups.filter((_, i) => !bombIdxs.has(i));
     const myBombs = bombIdxs.size;
     const myCards = this.cards.length;
+
+    // ★ 同花顺优先出：同花顺虽是炸弹，但能清5张且是强牌
+    //    不应留底，遇到就先出（清牌效率高，且是对手难压的强组合）
+    const straightFlushes = myGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && h.type === HandType.StraightFlush;
+    });
+    if (straightFlushes.length > 0 && myCards > straightFlushes[0].cards.length) {
+      // 手里不止同花顺这5张 -> 优先出同花顺清牌
+      // （如果只剩同花顺5张，走终局冲刺时直接出）
+      if (this.canPlay(straightFlushes[0].cards)) return straightFlushes[0].cards;
+    }
 
     // ★ 终局冲刺：如果出完炸弹后剩余牌≤1手能走完，直接出炸弹冲头游
     if (myBombs > 0) {
