@@ -594,7 +594,15 @@ class HandPlan {
   private findBestGroup(cards: Card[], level: number): { cards: Card[]; type: HandType; value: number } | null {
     if (cards.length === 0) return null;
     const candidates = this.generateCandidates(cards, level);
-    if (candidates.length === 0) return null;
+    if (candidates.length === 0) {
+      // 兜底：如果只剩万能牌或无法组队的散牌，允许出单张（含万能牌）
+      // 万能牌优先用于配炸/顺，但若确实无牌可出，可作最后单张
+      for (const c of cards) {
+        const hand = getHandType([c], level);
+        if (hand) return { cards: [c], type: HandType.Single, value: hand.value };
+      }
+      return null;
+    }
 
     let best = candidates[0];
     let bestScore = -999999;
@@ -632,25 +640,30 @@ class HandPlan {
       }
     }
 
-    // 三条：只从严格3张的rank取
+    // 三条：只从严格3张的rank取，排除万能牌（万能牌该配炸/顺）
     for (const [r, cs] of g) {
       if (r < 2 || r > 14 || cs.length !== 3) continue; // 严格3张
-      const trip = cs.slice(0, 3);
+      const nonWild = cs.filter(c => !c.isWild);
+      if (nonWild.length < 3) continue; // 万能牌不参与三条
+      const trip = nonWild.slice(0, 3);
       const hand = getHandType(trip, level);
       if (hand && hand.type === HandType.Trips) {
         result.push({ cards: trip, type: HandType.Trips, value: hand.value });
       }
     }
 
-    // 对子：只从严格2张的rank取（不拆3张的三条、不拆4+炸）
+    // 对子：只从严格2张的rank取（不拆3张的三条、不拆4+炸、不含万能牌）
     for (const [r, cs] of g) {
       if (r < 2 || r > 14 || cs.length !== 2) continue;
-      const pair = cs.slice(0, 2);
+      const nonWild = cs.filter(c => !c.isWild);
+      if (nonWild.length < 2) continue; // 万能牌不参与对子
+      const pair = nonWild.slice(0, 2);
       result.push({ cards: pair, type: HandType.Pair, value: getLogicValue(pair[0].rank, level) });
     }
 
-    // 单张：只从严格1张的rank取（不拆对子/三条/炸弹）
+    // 单张：只从严格1张的rank取（不拆对子/三条/炸弹，不含万能牌）
     for (const c of cards) {
+      if (c.isWild) continue; // 万能牌绝不作为单张出
       const sameCount = cards.filter(card => card.rank === c.rank).length;
       if (sameCount === 1 && c.rank >= 2 && c.rank <= 16) {
         result.push({ cards: [c], type: HandType.Single, value: getLogicValue(c.rank, level) });
