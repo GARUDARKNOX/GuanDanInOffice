@@ -52,6 +52,9 @@ export const GameTable: React.FC<Props> = ({
   
   // History window state
   const [showHistory, setShowHistory] = useState(false);
+
+  // 诊断用：是否显示队友BOT的完整手牌
+  const [showAllyHand, setShowAllyHand] = useState(false);
   
   // Hand type selection state (for wild cards with multiple interpretations)
   const [possibleHands, setPossibleHands] = useState<Hand[]>([]);
@@ -358,9 +361,9 @@ export const GameTable: React.FC<Props> = ({
     const playerName = roomState.players.find(p => p && p.seatIndex === playerIndex)?.name || `Seat ${playerIndex}`;
     
     return (
-      <div className="bg-green-700/50 p-4 rounded-lg flex flex-col items-center">
+      <div className="bg-green-700/50 p-4 rounded-lg flex flex-col items-center max-w-[90vw]">
         <div className="text-white mb-2 font-bold">{playerName} 出牌:</div>
-        <div className="flex -space-x-8">
+        <div className="flex flex-wrap justify-center gap-1 min-w-[200px]">
            {hand.cards.map((c: CardType) => (
              <Card key={c.id} card={c} />
            ))}
@@ -442,6 +445,14 @@ export const GameTable: React.FC<Props> = ({
              )}
          </div>
          {gameState && <div className="text-yellow-400">Cards: {data.handCount}</div>}
+        {/* 诊断用：显示队友BOT的完整手牌（仅队友位置） */}
+        {showAllyHand && data.isTeammate && gameState && gameState.allyHand && (
+          <div className="mt-2 flex flex-wrap justify-center gap-0.5 w-56">
+            {gameState.allyHand.map((c: CardType) => (
+              <Card key={c.id} card={c} small />
+            ))}
+          </div>
+        )}
          {data.player && data.player.isReady && !gameState && <div className="text-green-400 text-sm">Ready</div>}
          
          {/* Show current round action */}
@@ -636,6 +647,14 @@ export const GameTable: React.FC<Props> = ({
             <div className="text-xs text-gray-500 mb-1 pointer-events-auto">
                 [Debug] mySeat={mySeat}, currentTurn={gameState.currentTurn}, phase={gameState.phase}, isMyTurn={String(gameState.currentTurn === mySeat)}, myCards={Array.isArray(gameState.hands[mySeat]) ? (gameState.hands[mySeat] as any[]).length : '?'}
             </div>
+        )}
+        {gameState && (
+            <button
+                onClick={() => setShowAllyHand(v => !v)}
+                className={`pointer-events-auto mb-1 px-3 py-1 rounded text-xs font-bold ${showAllyHand ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+            >
+                {showAllyHand ? '隐藏队友手牌' : '显示队友手牌(诊断)'}
+            </button>
         )}
         
         {/* Skill Cards Area */}
