@@ -22,6 +22,8 @@ export class CardTracker {
   private playedByRank: Map<number, number> = new Map();
   private totalPlayed: number = 0;
 
+  getTotalPlayed(): number { return this.totalPlayed; }
+
   constructor(playedCards?: Card[]) {
     if (playedCards) {
       for (const c of playedCards) this.record(c);
@@ -1033,11 +1035,15 @@ export class Bot {
   /** 对手可能持有的炸弹数（已减掉我手里的牌） */
   private countEnemyPotentialBombs(): number {
     if (!this.tracker) return 0;
+    // 牌局早期（出牌少）数据不足，无法可靠判断对手炸弹，保守返回0
+    // 否则会把所有剩余牌都当威胁，导致牌力被严重低估
+    if (this.tracker.getTotalPlayed() < 10) return 0;
     let count = 0;
     for (let r = 2; r <= 16; r++) {
       const rem = this.getEnemyRemaining(r);
-      if (rem >= 6) count += 2;
-      else if (rem >= 4) count += 1;
+      // 只有剩余≥6才可能凑成炸弹（≥4分散在多个对手手里，不构成威胁）
+      if (rem >= 8) count += 2;
+      else if (rem >= 6) count += 1;
     }
     return count;
   }
@@ -1757,6 +1763,16 @@ export class Bot {
       // 不接非对子，等下家出对子时再压
     }
 
+    // ★ 主动炸弹（抢控制/断节奏/压大牌）：即使能跟牌，也值得炸
+    // 放在 planBeat 之前，中前期也触发
+    if (this.countMyBombs() > 0 && !isAllyNext && !(target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings)) {
+      const bomb = this.findBomb(target);
+      if (bomb) {
+        const bombPlay = this.decideBomb(target, lastPlayerIndex);
+        if (bombPlay) return bombPlay; // decideBomb 判定该炸
+      }
+    }
+
     // 先看规划组
     const planBeat = this.findPlanBeat(target);
     if (planBeat) return planBeat;
@@ -1789,6 +1805,14 @@ export class Bot {
     // 再看规划感知跟牌（不拆规划组）
     const preservingBeats = this.findAllBeatsPreservingPlan(target);
     if (preservingBeats.length > 0) {
+      // ★ 主动炸弹：即使有牌能跟，若决定该炸（抢控制/断节奏/压大牌），优先炸
+      if (this.countMyBombs() > 0 && !isAllyNext) {
+        const bomb = this.findBomb(target);
+        if (bomb) {
+          const bombPlay = this.decideBomb(target, lastPlayerIndex);
+          if (bombPlay) return bombPlay; // decideBomb判定该炸
+        }
+      }
       if (blockUrgency > 0) {
         return this.pickBestFollowBeat(preservingBeats, target);
       }
@@ -1834,6 +1858,16 @@ export class Bot {
     // 手牌全是炸弹时无条件炸
     if (this.areAllCardsBombs()) {
       if (this.findBomb(target)) return this.decideBomb(target, lastPlayerIndex);
+    }
+
+    // ★ 关键：除炸弹外没有能跟的牌型（只有炸弹+散牌且散牌跟不了当前牌型）
+    // 手牌几乎全是炸弹（非炸弹牌≤2张）时，唯一能压的就是炸弹，应果断炸
+    const nonBombCount = this.cards.filter(c => this.countSameRank(c.rank) < 4).length;
+    const myBombCount = this.countMyBombs();
+    if (myBombCount >= 2 && nonBombCount <= 2 && !isAllyNext) {
+      // 两个以上炸弹，且非炸弹牌很少（≤2张）-> 用炸弹压制，避免放走对手
+      const bomb = this.findBomb(target);
+      if (bomb) return this.decideBomb(target, lastPlayerIndex);
     }
 
     // 最后才考虑炸弹
@@ -2034,8 +2068,11 @@ export class Bot {
     // 对家剩7张 -> 必须炸（可能是两套牌），但联盟剩7张不炸
     if (enemyCards === 7 && !isBomb && !this.isAlly(lastPlayerIndex)) return this.findBomb(target);
 
-    // 对家剩8张 -> 不炸（三套牌炸不完）
-    if (enemyCards === 8 && !isBomb) return null;
+    // 对家剩8张 -> 默认不炸（三套牌炸不完），但若需抢控制/对手快走则炸
+    if (enemyCards === 8 && !isBomb) {
+      // 如果我方牌少(≤10)或对手出大牌(≥11)，值得炸
+      if (!(myCards <= 10 || target.value >= 11)) return null;
+    }
 
     // 对家剩≤3张 -> 必须炸（快走了），但联盟不炸
     if (enemyCards <= 3 && !this.isAlly(lastPlayerIndex)) return this.findBomb(target);
@@ -2053,13 +2090,59 @@ export class Bot {
     // 自己剩>15张 → 不浪费炸弹
     if (myCards > 15) return null;
 
+    // ★ 手牌几乎全是炸弹（非炸弹≤2张）-> 果断炸，跳过保守逻辑
+    const nonBombCnt = this.cards.filter(c => this.countSameRank(c.rank) < 4).length;
+    if (this.countMyBombs() >= 2 && nonBombCnt <= 2 && !isBomb) {
+      return this.findBomb(target); // 只有炸弹能压，直接炸
+    }
+
+    // ★★ 掼蛋大师：主动抢控制权（中前期也炸）
+    // 核心思想：炸弹是用来控制节奏、抢出牌权的，不是只有对手快走才用
+    const myBombs = this.countMyBombs();
+    const myStrength = this.assessHandStrength();
+    const hasReadyPlay = this.handPlan.groups.some((g, i) => {
+      // 手里有非炸弹的成型牌（顺子/连对/三带二/对子等）
+      if (this.handPlan.getBombIndices().has(i)) return false;
+      return true;
+    });
+
+    // 1. 抢回出牌权：我有能一手走掉的成型牌，对手压了我的牌型，炸了拿回控制
+    //    判断：对手濒临走牌(≤8) 或 我方牌不多(≤10)，且对手出大牌(≥11)
+    if (myBombs >= 1 && !isBomb) {
+      const playableGroups = this.handPlan.groups.length - this.handPlan.getBombIndices().size;
+      // 对手快走或我方牌少时，才值得用炸弹抢控制
+      if ((enemyCards <= 8 || myCards <= 10) && playableGroups >= 2 && myStrength >= 25) {
+        // 对手出中高牌(≥11, Q以上)才炸，能用普通牌跟的用牌跟省炸
+        if (target.value >= 11) {
+          return this.findBomb(target);
+        }
+      }
+    }
+
+    // 2. 打断对手节奏：对手连续拿控制权（对手牌比我们少或快走），炸断
+    //    判断：下家/出牌者濒临走牌(≤10张) 且 我方有机会反超
+    if (myBombs >= 1 && !isBomb) {
+      if (enemyCards <= 10 && myCards <= enemyCards + 3 && myStrength >= 25) {
+        // 对手牌少且我方牌力尚可 → 用炸弹夺回控制，避免对手连续出
+        return this.findBomb(target);
+      }
+    }
+
+    // 3. 保护队友/阻止对手大牌：对手出A/K/级牌/王等大牌，炸了不让对手爽
+    if (myBombs >= 2 && !isBomb) {
+      if (target.value >= 14) { // A/K/级牌/王
+        return this.findBomb(target); // 有两个炸弹，舍得炸一个压大牌
+      }
+    }
+
     // ★ 记忆增强：根据对手可能炸弹数调整是否值得炸
     if (this.tracker) {
       const oppBombThreat = this.countEnemyPotentialBombs();
       // 对手炸弹威胁大(≥3) -> 保守，避免炸完被反炸
       if (oppBombThreat >= 3 && myCards > 8 && !isBomb) return null;
       // 对手炸弹威胁小(0) -> 更敢炸（外面几乎没有炸弹能压我）
-      if (oppBombThreat === 0 && !isBomb) {
+      // 但只在对手出大牌(≥11)时炸，小牌用普通牌跟省炸
+      if (oppBombThreat === 0 && !isBomb && target.value >= 11) {
         // 对手没炸弹潜力了，用炸弹拿回控制权很划算
         if (this.countMyBombs() >= 1) return this.findBomb(target);
       }
