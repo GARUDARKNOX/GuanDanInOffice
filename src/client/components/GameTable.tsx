@@ -447,7 +447,7 @@ export const GameTable: React.FC<Props> = ({
          {gameState && <div className="text-yellow-400">Cards: {data.handCount}</div>}
         {/* 诊断用：显示队友BOT的完整手牌（仅队友位置） */}
         {showAllyHand && data.isTeammate && gameState && gameState.allyHand && (
-          <div className="mt-2 flex flex-wrap justify-center gap-0.5 w-56">
+          <div className="mt-2 flex flex-wrap justify-center gap-0.5 w-[500px]">
             {gameState.allyHand.map((c: CardType) => (
               <Card key={c.id} card={c} small />
             ))}
