@@ -338,8 +338,9 @@ class HandPlan {
       if (bestPlan.handCount - newHandCount >= 2) {
         const oldBombCount = this.bombIndices.size;
         const newBombCount = newBombIndices.size;
-        // 拆一个炸后炸弹数-1是可以接受的，但不能-2以上
-        if (oldBombCount - newBombCount <= 1) {
+        // ★ 绝不能拆掉最后一个炸弹（炸弹是垫底控盘的核心资产）
+        //   拆一个炸后炸弹数-1可以接受，但不能把炸弹数降到0
+        if (newBombCount >= 1 && oldBombCount - newBombCount <= 1) {
           // 检查新方案不能把级牌配成连对/顺子的组成部分
           let badPlan = false;
           for (const ng of newGroups) {
@@ -1537,20 +1538,20 @@ export class Bot {
   /** 找非单张的最优出牌 */
   private findBestNonSingle(): Card[] | null {
     const groups = this.groupByRawRank();
-    // 三带二
+    // 三带二（严格3张三条，不拆4+张炸弹）
     for (const [r, cs] of groups) {
-      if (r < 2 || r > 14 || cs.length < 3) continue;
+      if (r < 2 || r > 14 || cs.length !== 3) continue;
       const trip = cs.slice(0, 3);
       const pair = this.findPairExcluding(trip);
       if (pair) return [...trip, ...pair];
     }
-    // 三条
+    // 三条（严格3张，不拆4+张炸弹）
     for (const [r, cs] of groups) {
-      if (r < 2 || r > 14 || cs.length >= 3) return cs.slice(0, 3);
+      if (r >= 2 && r <= 14 && cs.length === 3) return cs.slice(0, 3);
     }
-    // 对子
+    // 对子（严格2张，不拆4+张炸弹）
     for (const [r, cs] of groups) {
-      if (r >= 2 && r <= 14 && cs.length >= 2) return cs.slice(0, 2);
+      if (r >= 2 && r <= 14 && cs.length === 2) return cs.slice(0, 2);
     }
     return null;
   }
@@ -1569,7 +1570,7 @@ export class Bot {
     const groups = this.groupByRawRank();
     const pairs: Card[][] = [];
     for (const [, cs] of groups) {
-      if (cs.length >= 2 && cs[0].rank >= 2 && cs[0].rank <= 14) {
+      if (cs.length === 2 && cs[0].rank >= 2 && cs[0].rank <= 14) {
         pairs.push(cs.slice(0, 2));
       }
     }
@@ -2706,7 +2707,9 @@ export class Bot {
       const cnt = this.countSameRank(rank);
       return cnt < 4; // 4+张是炸弹，不拆
     });
-    const candidates = safePairs.length > 0 ? safePairs : pairs;
+    // 回退路径也绝不能拆炸弹：没有安全对子就返回 null（宁可不出三带二也不破坏炸弹）
+    if (safePairs.length === 0) return null;
+    const candidates = safePairs;
     candidates.sort((a, b) => {
       if (a.disruption !== b.disruption) return a.disruption - b.disruption;
       return getLogicValue(a.cards[0].rank, this.level) - getLogicValue(b.cards[0].rank, this.level);

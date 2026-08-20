@@ -1125,11 +1125,21 @@ export class Game {
     this.players.forEach((p, idx) => {
         if (!p.isBot && p.socket) {
             const myNewCardIds = this.newCardIds[idx] || [];
+            // 诊断用：发送队友BOT的完整手牌（3人模式无队友，或队友是真人时不发）
+            let allyHand: Card[] | undefined;
+            if (this.players.length === 4) {
+                const partnerIdx = (idx + 2) % 4;
+                const partner = this.players[partnerIdx];
+                if (partner && partner.isBot) {
+                    allyHand = this.hands[partnerIdx] || [];
+                }
+            }
             p.socket.emit('gameState', {
                 phase: this.currentPhase,
                 level: this.level,
                 currentTurn: this.currentTurn,
                 hands: this.hands.map((h, i) => i === idx ? h : h.length),
+                allyHand, // 队友BOT的完整手牌（诊断用）
                 lastHand: this.lastHand,
                 roundActions: this.roundActions,
                 winners: this.winners,

@@ -7,6 +7,7 @@ export interface GameState {
   level: number;
   currentTurn: number;
   hands: (Card[] | number)[]; 
+  allyHand?: Card[]; // 队友BOT完整手牌（诊断用）
   lastHand: { playerIndex: number, hand: any } | null;
   roundActions?: { [seat: number]: { type: 'play' | 'pass', cards?: Card[], hand?: any } };
   winners: number[];
