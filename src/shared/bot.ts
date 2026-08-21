@@ -1221,17 +1221,11 @@ export class Bot {
     const myBombs = bombIdxs.size;
     const myCards = this.cards.length;
 
-    // ★ 同花顺优先出：同花顺虽是炸弹，但能清5张且是强牌
-    //    不应留底，遇到就先出（清牌效率高，且是对手难压的强组合）
-    const straightFlushes = myGroups.filter(g => {
-      const h = getHandType(g.cards, this.level);
-      return h && h.type === HandType.StraightFlush;
-    });
-    if (straightFlushes.length > 0 && myCards > straightFlushes[0].cards.length) {
-      // 手里不止同花顺这5张 -> 优先出同花顺清牌
-      // （如果只剩同花顺5张，走终局冲刺时直接出）
-      if (this.canPlay(straightFlushes[0].cards)) return straightFlushes[0].cards;
-    }
+    // ★ 同花顺 = 炸弹级资源，绝不优先甩（留底保控制权）
+    //    同花顺已包含在 bombIndices 中，走下方"炸弹留底/终局冲刺"逻辑：
+    //    - 出完同花顺剩余0张 → 直接出走头游
+    //    - 出完剩余1手 → 先出那手，同花顺保底
+    //    不能像普通顺子一样优先清牌甩掉，那是浪费炸弹
 
     // ★ 终局冲刺：如果出完炸弹后剩余牌≤1手能走完，直接出炸弹冲头游
     if (myBombs > 0) {
