@@ -1751,7 +1751,11 @@ export class Bot {
       // 手牌能一把走完（如一套三带二/顺子/钢板）
       // 如果对手出的牌型能用整套压（同类型且更大），可以整套跟；否则保留等机会
       const wholeType = getHandType(wholeHand, this.level)?.type;
-      const canWholeBeat = wholeType === target.type; // 同类型才能整套跟（非炸弹）
+      // ★ 修复：整套是炸弹(含逢人配炸弹)时，出掉=直接走头游，绝不能Pass保留
+      //   炸弹可压任何非炸弹牌型，canWholeBeat 应视为 true
+      const isWholeBomb = wholeType === HandType.Bomb || wholeType === HandType.StraightFlush || wholeType === HandType.FourKings;
+      const targetIsBombType = target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings;
+      const canWholeBeat = wholeType === target.type || (isWholeBomb && !targetIsBombType);
       if (!canWholeBeat) {
         // 对手出不同牌型，拆了会破坏一套走人 -> 直接Pass保留
         return null;
@@ -2205,17 +2209,9 @@ export class Bot {
   }
 
   private countMyBombs(): number {
-    let count = 0;
-    const groups = this.groupByRawRank();
-    for (const [r, cs] of groups) {
-      if (cs.length >= 4) count++;
-    }
-    const sfs = this.findStraightFlushes();
-    count += sfs.length;
-    const sj = this.cards.filter(c => c.rank === Rank.SmallJoker);
-    const bj = this.cards.filter(c => c.rank === Rank.BigJoker);
-    if (sj.length === 2 && bj.length === 2) count++;
-    return count;
+    // ★ 用 handPlan 的权威炸弹识别（含逢人配炸弹：3张+红桃级牌=4炸）
+    //    不能只用 groupByRawRank 数"4张纯同rank"，那会漏掉逢人配炸弹
+    return this.handPlan.getBombIndices().size;
   }
 
   // ---- 规划感知的跟牌查找 ----
@@ -2656,11 +2652,10 @@ export class Bot {
 
   /** 手牌是否全是炸弹？是则出牌只能出炸弹 */
   private areAllCardsBombs(): boolean {
-    const groups = this.groupByRawRank();
-    for (const [, cs] of groups) {
-      if (cs.length < 4) return false;
-    }
-    return this.cards.length > 0;
+    // ★ 用 handPlan 权威炸弹识别（含逢人配炸弹）
+    if (this.cards.length === 0) return false;
+    const bombIdxs = this.handPlan.getBombIndices();
+    return this.handPlan.groups.every((_, i) => bombIdxs.has(i));
   }
 
   private countSameRank(rank: Rank): number {
@@ -2749,9 +2744,13 @@ export class Bot {
   }
 
   getBombs(): { cards: Card[], value: number }[] {
-    // 按 rank 分组，取全部4+张作为完整炸弹（不拆5+为4+1）
+    // ★ 纯炸弹 + 逢人配炸弹（不含同花顺，同花顺由 findStraightFlushes 单独处理）
+    //    - 4+张纯同rank → 完整炸弹
+    //    - 3张同rank + 1张万能牌(红桃级牌) → 逢人配炸弹
     const rankGroups = new Map<number, Card[]>();
+    const wilds: Card[] = [];
     for (const c of this.cards) {
+      if (c.isWild) { wilds.push(c); continue; }
       if (!rankGroups.has(c.rank)) rankGroups.set(c.rank, []);
       rankGroups.get(c.rank)!.push(c);
     }
@@ -2759,6 +2758,9 @@ export class Bot {
     for (const [rank, cs] of rankGroups) {
       if (cs.length >= 4) {
         bombs.push({ cards: [...cs], value: getLogicValue(rank, this.level) });
+      } else if (cs.length === 3 && wilds.length > 0) {
+        // 3张同rank + 万能牌 = 4张炸弹（逢人配）
+        bombs.push({ cards: [...cs, wilds[0]], value: getLogicValue(rank, this.level) });
       }
     }
     bombs.sort((a, b) => a.value - b.value);
