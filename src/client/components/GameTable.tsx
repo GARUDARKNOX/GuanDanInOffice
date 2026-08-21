@@ -368,7 +368,7 @@ export const GameTable: React.FC<Props> = ({
              <Card key={c.id} card={c} />
            ))}
         </div>
-        <div className="text-yellow-300 font-bold mt-2">{hand.type}</div>
+        <div className="text-yellow-300 font-bold mt-2">{getHandDescription(hand, gameState.level)}</div>
       </div>
     );
   };
