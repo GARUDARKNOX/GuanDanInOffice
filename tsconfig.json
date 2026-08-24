@@ -20,6 +20,5 @@
       "@shared/*": ["src/shared/*"]
     }
   },
-  "include": ["src"],
-  "exclude": ["src/shared/advanced-bot.ts"]
+  "include": ["src"]
 }

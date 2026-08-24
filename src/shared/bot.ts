@@ -176,8 +176,11 @@ class HandPlan {
   }
 
   /**
-   * 交换优化：尝试把两个非炸弹组的牌互换，看总手数是否减少。
-   * 只尝试同张数或相近的组，避免组合爆炸。
+   * 合并优化：尝试把两个非炸弹组合并成"一手合法牌型"，减少总手数。
+   * ★ 修复：原实现用 findBestTwoGroups 重新拆分两组，但条件写死
+   *   （newGroups.length < 2 直接跳过、oldHandCount=2 导致 2<2 恒假），
+   *   整段逻辑是死代码，从未执行过。现改为直接检测"两组牌合并后恰好是
+   *   一手牌型"（如两个三张->木板、三带二、两个散单->对子等），严格减少1手。
    */
   private optimizeBySwapping(level: number): void {
     let improved = true;
@@ -195,96 +198,33 @@ class HandPlan {
           const ib = nonBombIdxs[b];
           const ga = this.groups[ia];
           const gb = this.groups[ib];
-          // 只尝试5张组之间或3张组之间的交换
-          if (ga.cards.length !== gb.cards.length) continue;
-          if (ga.cards.length > 5) continue;
-          // 合并两组牌重新分组
           const combined = [...ga.cards, ...gb.cards];
-          const newGroups = this.regroupSubsets(combined, level);
-          if (newGroups.length < 2) continue;
-          // 只有新手数更少才采用
-          if (newGroups.length < 2) continue;
-          const oldHandCount = 2; // 原来就是2组
-          if (newGroups.length < oldHandCount) {
-            // 检查新方案不能把级牌配进连对/顺子
-            let badPlan = false;
-            for (const ng of newGroups) {
-              const h = getHandType(ng.cards, level);
-              if (!h) continue;
-              if (h.type === HandType.Tube || h.type === HandType.Straight) {
-                if (ng.cards.some(c => c.rank === level)) {
-                  badPlan = true;
-                  break;
-                }
-              }
-            }
-            if (badPlan) continue;
-            // 用新组替换
-            this.groups.splice(ib, 1);
-            this.groups.splice(ia, 1);
-            for (const ng of newGroups.reverse()) {
-              this.groups.splice(ia, 0, ng);
-            }
-            // 重建bombIndices
-            const newBombIdxs = new Set<number>();
-            for (let i = 0; i < this.groups.length; i++) {
-              const h = getHandType(this.groups[i].cards, level);
-              if (h && (h.type === HandType.Bomb || h.type === HandType.StraightFlush || h.type === HandType.FourKings)) {
-                newBombIdxs.add(i);
-              }
-            }
-            this.bombIndices = newBombIdxs;
-            this.sortByPlayOrder();
-            improved = true;
+          // 合并后必须是"一手能出完"的合法牌型（长度≤6），炸弹走独立逻辑
+          if (combined.length > 6) continue;
+          const merged = getHandType(combined, level);
+          if (!merged) continue;
+          if (merged.type === HandType.Bomb || merged.type === HandType.StraightFlush || merged.type === HandType.FourKings || merged.type === HandType.ThreeKings) continue;
+          // 级牌不进顺子/连对/木板（级牌是控制牌）
+          if (merged.type === HandType.Straight || merged.type === HandType.Tube || merged.type === HandType.Plate) {
+            if (combined.some(c => c.rank === level)) continue;
           }
+          // 用合并后的一组替换原来的两组
+          this.groups.splice(ib, 1);
+          this.groups.splice(ia, 1, { cards: combined, type: merged.type, value: merged.value });
+          // 重建bombIndices
+          const newBombIdxs = new Set<number>();
+          for (let i = 0; i < this.groups.length; i++) {
+            const h = getHandType(this.groups[i].cards, level);
+            if (h && (h.type === HandType.Bomb || h.type === HandType.StraightFlush || h.type === HandType.FourKings)) {
+              newBombIdxs.add(i);
+            }
+          }
+          this.bombIndices = newBombIdxs;
+          this.sortByPlayOrder();
+          improved = true;
         }
       }
     }
-  }
-
-  /** 对一组牌尝试找最优2组拆分 */
-  private regroupSubsets(cards: Card[], level: number): { cards: Card[]; type: HandType; value: number }[] {
-    // 尝试所有可能的同类型拆分
-    const result = this.findBestTwoGroups(cards, level);
-    return result;
-  }
-
-  /** 尝试把牌分成2组，返回最优方案 */
-  private findBestTwoGroups(cards: Card[], level: number): { cards: Card[]; type: HandType; value: number }[] {
-    // 简化：直接用 generateCandidates 找最大的两组
-    const candidates = this.generateCandidates(cards, level);
-    if (candidates.length === 0) return [{ cards, type: HandType.Single, value: 0 }];
-
-    // 找评分最高的候选
-    let bestFirst = candidates[0];
-    let bestScore = -999;
-    for (const c of candidates) {
-      const s = this.scoreGroup(c, cards, level);
-      if (s > bestScore) { bestScore = s; bestFirst = c; }
-    }
-
-    // 剩余牌
-    const remaining = cards.filter(c => !bestFirst.cards.some(bc => bc.id === c.id));
-    if (remaining.length === 0) return [bestFirst];
-
-    // 对剩余牌再找一组
-    const subCandidates = this.generateCandidates(remaining, level);
-    if (subCandidates.length === 0) {
-      // 剩余全当单张
-      return [bestFirst, ...remaining.map(c => ({ cards: [c], type: HandType.Single, value: getLogicValue(c.rank, level) }))];
-    }
-    let bestSecond = subCandidates[0];
-    let bestScore2 = -999;
-    for (const c of subCandidates) {
-      const s = this.scoreGroup(c, remaining, level);
-      if (s > bestScore2) { bestScore2 = s; bestSecond = c; }
-    }
-    const remaining2 = remaining.filter(c => !bestSecond.cards.some(bc => bc.id === c.id));
-    const result = [bestFirst, bestSecond];
-    for (const c of remaining2) {
-      result.push({ cards: [c], type: HandType.Single, value: getLogicValue(c.rank, level) });
-    }
-    return result;
   }
 
   /**
@@ -799,22 +739,57 @@ class HandPlan {
       score -= (singlesLeft - tripsLeft) * 12;
     }
     // 剩余手数估计（越少越好）
-    const estimatedHands = this.estimateHands(after);
+    const estimatedHands = this.estimateHands(after, level);
     score -= estimatedHands * 3;
     return score;
   }
 
-  /** 粗略估计剩余牌需要几手出完 */
-  private estimateHands(cards: Card[]): number {
+  /**
+   * 粗略估计剩余牌需要几手出完。
+   * ★ 修复：原来按"同rank一组算一手"——一条5连顺子会被数成5手，
+   *   严重高估剩余手数，导致配牌评分失真、不整合顺子/钢板。
+   *   现在贪心识别 木板(2连×3) / 连对(3连×2) / 顺子(5连×1) 后再数剩余组。
+   */
+  private estimateHands(cards: Card[], level: number): number {
     if (cards.length === 0) return 0;
-    const g = this.groupCards(cards);
-    let hands = 0;
-    for (const [, cs] of g) {
-      if (cs.length >= 4) { hands++; continue; } // 炸弹
-      if (cs.length === 3) { hands++; continue; } // 三条
-      if (cs.length === 2) { hands++; continue; } // 对子
-      if (cs.length === 1) { hands++; continue; } // 单张
+    const counts = new Map<number, number>();
+    let jokers = 0;
+    for (const c of cards) {
+      if (c.rank > Rank.Ace) { jokers++; continue; } // 大小王单独算
+      const r = c.isWild ? level : c.rank;           // 万能牌并入级牌组
+      counts.set(r, (counts.get(r) || 0) + 1);
     }
+    const take = (r: number, n: number): boolean => {
+      const c = counts.get(r) || 0;
+      if (c >= n) { counts.set(r, c - n); return true; }
+      return false;
+    };
+    let hands = 0;
+    const ranks = Array.from(counts.keys()).sort((a, b) => a - b);
+    // 木板：2连 rank 各取3（6张1手，省1手）
+    for (let i = 0; i < ranks.length - 1; i++) {
+      const a = ranks[i], b = ranks[i + 1];
+      while (b === a + 1 && take(a, 3) && take(b, 3)) hands++;
+    }
+    // 连对：3连 rank 各取2（6张1手，省2手）
+    for (let i = 0; i < ranks.length - 2; i++) {
+      const a = ranks[i], b = ranks[i + 1], c = ranks[i + 2];
+      while (b === a + 1 && c === b + 1 && take(a, 2) && take(b, 2) && take(c, 2)) hands++;
+    }
+    // 顺子：5连 rank 各取1（5张1手，省4手）
+    for (let i = 0; i <= ranks.length - 5; i++) {
+      const w = ranks.slice(i, i + 5);
+      if (w[4] !== w[0] + 4) continue;
+      let ok = true;
+      for (const r of w) if ((counts.get(r) || 0) < 1) { ok = false; break; }
+      if (ok) { for (const r of w) counts.set(r, (counts.get(r) || 0) - 1); hands++; }
+    }
+    // 剩余按 rank 组数
+    for (const [, c] of counts) {
+      if (c <= 0) continue;
+      hands++; // 每个剩余rank组至少一手（炸弹/三条/对子/单张）
+    }
+    hands += jokers; // 王：每张1手
     return hands;
   }
 
@@ -994,6 +969,12 @@ export class Bot {
   private lastFreePlayType: 'None' | 'Pair' | 'Single' | 'TripsWithPair' | 'Sequence' = 'None';
   /** 三人模式: isAlly永远false */
   private isThreePlayer: boolean = false;
+  /**
+   * 规划中"三带二"的对子部分 rank 集合（如 555KK -> {13}）。
+   * 跟牌时允许拆出这套对子去压对子（拆后剩余三条仍是一手），这是掼蛋里合理的"拆牌"。
+   * 与顺子/连对/钢板（多rank组合，拆一张就废）严格区分。
+   */
+  private tripsWithPairPairRanks: Set<number> = new Set();
 
   /** 返回当前手牌的最优分组方案（供前端自动组牌使用） */
   getHandGroups(): { cards: Card[]; type: HandType; value: number; isBomb: boolean }[] {
@@ -1014,6 +995,15 @@ export class Bot {
     this.tracker = tracker || new CardTracker();
     this.isThreePlayer = isThreePlayer;
     this.handPlan = new HandPlan(this.cards, this.level);
+    // 收集所有三带二规划组的"对子部分"rank（跟牌时可拆对子压对子）
+    this.tripsWithPairPairRanks = new Set<number>();
+    for (const g of this.handPlan.groups) {
+      const h = getHandType(g.cards, this.level);
+      if (!h || h.type !== HandType.TripsWithPair) continue;
+      const counts = new Map<number, number>();
+      for (const c of g.cards) counts.set(c.rank, (counts.get(c.rank) || 0) + 1);
+      for (const [rank, cnt] of counts) if (cnt === 2) this.tripsWithPairPairRanks.add(rank);
+    }
   }
 
   private isAlly(idx: number): boolean {
@@ -1025,12 +1015,35 @@ export class Bot {
     return (this.seatIndex + 2) % 4;
   }
 
+  /** 估算队友手里某 rank 的张数（按队友手数占场外剩余牌的比例分摊） */
+  private estimatePartnerHolds(rank: number): number {
+    if (this.isThreePlayer) return 0;
+    const partner = this.partnerIdx();
+    const partnerCount = this.handsInfo[partner];
+    if (partnerCount <= 0) return 0;
+    if (!this.tracker) return 0;
+    // 场外剩余总张数 = 各 rank 剩余之和
+    let totalRemaining = 0;
+    for (let r = 2; r <= 16; r++) totalRemaining += this.tracker.getRemaining(r);
+    if (totalRemaining <= 0) return 0;
+    const rem = this.tracker.getRemaining(rank);
+    return Math.round((partnerCount / totalRemaining) * rem);
+  }
+
   /** 对手（非我、非队友）可能持有的某rank剩余数 = 总剩余 - 我手里的 - 队友手里的 */
   private getEnemyRemaining(rank: number): number {
     if (!this.tracker) return 0;
     let mine = this.cards.filter(c => c.rank === rank).length;
     let totalRem = this.tracker.getRemaining(rank);
-    return Math.max(0, totalRem - mine);
+    let partnerHolds = this.estimatePartnerHolds(rank);
+    return Math.max(0, totalRem - mine - partnerHolds);
+  }
+
+  /** 某rank在我手里之外（桌面已出 + 其他三家手里）还剩几张 */
+  private getRemainingOutsideMyHand(rank: number): number {
+    if (!this.tracker) return 0;
+    const mine = this.cards.filter(c => c.rank === rank).length;
+    return Math.max(0, this.tracker.getRemaining(rank) - mine);
   }
 
   /** 对手可能持有的炸弹数（已减掉我手里的牌） */
@@ -1053,6 +1066,10 @@ export class Bot {
   private getPhase(): 'opening' | 'mid' | 'endgame' {
     if (this.cards.length > 20) return 'opening';
     if (this.cards.length <= 10) return 'endgame';
+    // ★ 修复：残局不能只看自己手牌数——自己牌多但场上其他人已进入
+    //   低手数阶段，同样已是残局（对手/队友都在准备走牌了）
+    const others = this.handsInfo.filter((_, i) => i !== this.seatIndex);
+    if (others.some(c => c > 0 && c <= 8)) return 'endgame';
     return 'mid';
   }
 
@@ -1068,10 +1085,16 @@ export class Bot {
     return !this.isAlly(next) && this.handsInfo[next] <= 3;
   }
 
-  /** 联盟是否濒临走牌（≤3张或已走） */
+  /**
+   * 联盟是否濒临走牌（还剩 1-3 张）。
+   * ★ 修复：队友已经走完（0 张）不算"濒临走牌"——队友头游后应转为
+   *   为自己抢名次（走 findControllingPlay 控牌/保结构），而不是继续
+   *   给一个已经赢了的队友"送最弱牌"。
+   */
   private allyNearOut(): boolean {
     const p = this.partnerIdx();
-    return this.handsInfo[p] <= 3;
+    const cards = this.handsInfo[p];
+    return cards > 0 && cards <= 3;
   }
 
   decideMove(target: Hand | null, lastPlayerIndex: number = -1): Card[] | null {
@@ -1247,7 +1270,13 @@ export class Bot {
           const remainingCards = this.cards.filter(c => !smallestBomb.cards.some(bc => bc.id === c.id));
           const remainingHand = getHandType(remainingCards, this.level);
           if (remainingHand && this.canPlay(remainingCards)) {
-            return remainingCards; // 先出非炸弹手牌，炸弹保底
+            // ★ 修复：剩余牌若也是炸弹（双炸 / 炸+同花顺 / 炸+天王炸），
+            //   绝不能先出剩余的那手——必须"先出小炸、留大炸"。先甩大炸会把
+            //   最后一张保底/收尾的炸提前暴露，被对手用小炸一压就收不了尾。
+            if (remainingHand.type === HandType.Bomb || remainingHand.type === HandType.StraightFlush || remainingHand.type === HandType.FourKings) {
+              return smallestBomb.cards; // 先出小炸，大炸留最后（出小留大）
+            }
+            return remainingCards; // 剩余是普通牌型 -> 先出这手，炸弹保底
           }
           // 剩余牌不是一手（多张散牌）-> 更不该先出炸弹，交给下面的散牌逻辑
         }
@@ -1271,27 +1300,29 @@ export class Bot {
     }
 
     // 0.5 tracker驱动：优先出对手已出完rank的牌（安全牌）
-    // 对手某个rank出完了，出这个rank的单张/对子绝对安全
+    // ★ 修复：原来用 tracker.isRankExhausted(rank) 判断"某rank已出完"，
+    //   但该函数算的是"全桌已出数 == 总数"，而这里检查的 rank 正是自己
+    //   握着的牌，导致它永远为 false，整段逻辑从未生效。现在改为
+    //   "该 rank 在我手里之外已耗尽"（桌面已出 + 其他三家手里都没有），
+    //   出这个 rank 的单张/对子才真正安全（不会被同 rank 压）。
     if (this.tracker) {
-      // 找"绝对控制牌"：某个rank已出完，且它上面所有rank也基本出完 -> 这手牌无人能压（除炸弹）
-      // 例：外面K、A、级牌、王都出完了，我的K就是单张/对子霸王
       for (const g of nonBombGroups) {
         const hand = getHandType(g.cards, this.level);
         if (!hand) continue;
         if (hand.type === HandType.Single || hand.type === HandType.Pair) {
           const cardRank = g.cards[0].rank;
-          if (this.tracker.isRankExhausted(cardRank)) {
+          if (this.getRemainingOutsideMyHand(cardRank) === 0) {
             if (this.canPlay(g.cards)) return g.cards;
           }
         }
       }
-      // 扩展：三条/三带二的"张"部分如果rank已出完也安全
+      // 扩展：三条/三带二的"张"部分如果rank在外已耗尽也安全
       for (const g of nonBombGroups) {
         const hand = getHandType(g.cards, this.level);
         if (!hand) continue;
         if (hand.type === HandType.Trips || hand.type === HandType.TripsWithPair) {
           const cardRank = g.cards[0].rank;
-          if (this.tracker.isRankExhausted(cardRank)) {
+          if (this.getRemainingOutsideMyHand(cardRank) === 0) {
             if (this.canPlay(g.cards)) return g.cards;
           }
         }
@@ -1702,7 +1733,7 @@ export class Bot {
       if (this.handsInfo[partner] === 0) return null;
 
       // 队友出炸弹/同花顺/天王炸 -> 绝对不压（不能炸队友）
-      const targetIsBomb = target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings;
+      const targetIsBomb = target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings || target.type === HandType.ThreeKings;
       if (targetIsBomb) return null;
 
       // 队友出中小牌(value≤13) -> 顺牌过，帮队友抬牌
@@ -1743,9 +1774,15 @@ export class Bot {
     const isUpperEnemy = lastPlayerIndex === (this.seatIndex + 3) % 4;
     const isLowerEnemy = lastPlayerIndex === (this.seatIndex + 1) % 4;
 
+    // 下家敌人濒临走牌 -> 阻断优先级高
+    const needBlock = !isAllyNext && nextCards <= 7;
+    const blockUrgency = needBlock ? (nextCards <= 2 ? 3 : nextCards <= 5 ? 2 : 1) : 0;
+    // 出牌者（target方）也是敌人且濒临走牌 -> 同样需要挡
+    const targetEnemyNearFinish = !this.isAlly(lastPlayerIndex) && enemyCards > 0 && enemyCards <= 5;
+
     // ★ 一套走人保护：手牌可一把走完时，不要拆散它去跟小牌
-    // 例: 只剩 999+22(一套三带二), 对手出对44 -> 不应拆99或22
-    // 如果手牌整体能组成一套合法牌型，且对手出的牌型与之不同/压不过，就Pass保留
+    // 例: 只剩 999+22(一套三带二), 对手出对44 -> 平时不应拆99或22
+    // 但若对手/下家濒临走牌必须挡时，三带二/三条这种"拆后仍成手"的组合就该拆开去挡
     const wholeHand = this.tryPlayAll();
     if (wholeHand) {
       // 手牌能一把走完（如一套三带二/顺子/钢板）
@@ -1754,21 +1791,27 @@ export class Bot {
       // ★ 修复：整套是炸弹(含逢人配炸弹)时，出掉=直接走头游，绝不能Pass保留
       //   炸弹可压任何非炸弹牌型，canWholeBeat 应视为 true
       const isWholeBomb = wholeType === HandType.Bomb || wholeType === HandType.StraightFlush || wholeType === HandType.FourKings;
-      const targetIsBombType = target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings;
+      const targetIsBombType = target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings || target.type === HandType.ThreeKings;
       const canWholeBeat = wholeType === target.type || (isWholeBomb && !targetIsBombType);
       if (!canWholeBeat) {
-        // 对手出不同牌型，拆了会破坏一套走人 -> 直接Pass保留
-        return null;
+        // ★ 修复：三带二/三条拆开（拆对子压对子、拆三条压三条）后剩余仍是成手，
+        //   在需要挡牌的紧要关头值得拆——否则"死保一套三带二"会让对手用一堆
+        //   小牌一路走完。顺子/连对/钢板拆了只剩散牌，永远保留。
+        const hand = getHandType(wholeHand, this.level)!;
+        const breakable = hand.type === HandType.TripsWithPair || hand.type === HandType.Trips;
+        const mustBlock = blockUrgency >= 2 || targetEnemyNearFinish;
+        if (breakable && mustBlock) {
+          // 放行：让下面逻辑拆开去挡牌
+        } else {
+          // 对手出不同牌型，拆了会破坏一套走人 -> 直接Pass保留
+          return null;
+        }
       }
     }
 
     // 枪不打四：对家剩4张，不是炸弹就不炸
     // 对家剩8张：不炸（三套牌炸不完）
     // 这些在 decideBomb 里处理，这里跳过
-
-    // 下家敌人濒临走牌 -> 阻断优先级高
-    const needBlock = !isAllyNext && nextCards <= 7;
-    const blockUrgency = needBlock ? (nextCards <= 2 ? 3 : nextCards <= 5 ? 2 : 1) : 0;
 
     // 上家出牌：后面是队友（对门），可以大胆跟
     // 下家出牌：后面是敌人，要考虑封锁
@@ -1780,7 +1823,7 @@ export class Bot {
     // ★ 主动炸弹（抢控制/断节奏/压大牌）：即使能跟牌，也值得炸
     // 放在 planBeat 之前，中前期也触发
     // 但先检查能否用规划牌便宜跟牌——能跟则优先跟，不浪费炸弹
-    if (this.countMyBombs() > 0 && !isAllyNext && !(target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings)) {
+    if (this.countMyBombs() > 0 && !isAllyNext && !(target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings || target.type === HandType.ThreeKings)) {
       // 用最小/规划牌能跟的话，优先跟而非炸（节省炸弹）
       const canAffordBeat = this.findPlanBeat(target) || (this.findAllBeatsPreservingPlan(target).length > 0);
       if (!canAffordBeat) {
@@ -1794,7 +1837,15 @@ export class Bot {
 
     // 先看规划组
     const planBeat = this.findPlanBeat(target);
-    if (planBeat) return planBeat;
+    if (planBeat) {
+      // ★ 终局防护：下家敌人只剩1张且对手出单张时，规划组可能给出"最小单张"，
+      //   会被下家那张牌直接压走送头游。改用"最高的、不拆规划的"单张来封牌（垫高）。
+      if (this.nextEnemyHasOne() && target.type === HandType.Single) {
+        const highBeat = this.findHighestPreservingSingleBeat(target.value);
+        if (highBeat) return highBeat;
+      }
+      return planBeat;
+    }
 
     // ★ 终局冲刺（跟牌）：如果炸后剩余牌≤1手或很少，直接炸了冲头游
     // 与自由出牌的 findControllingPlay 对应，避免"剩炸弹+散牌却不炸"
@@ -1814,9 +1865,17 @@ export class Bot {
             return bomb;
           }
         }
-        // 炸后剩余≤3张散牌 -> 也值得炸
+        // 炸后剩余 1-3 张：只有"剩余正好一手走完"或"全是高位控牌(级牌/大小王)"才值得炸。
+        // ★ 修复：否则炸完留 2-3 手散牌（如 5,5,9 / 10,6,4）反而送出发牌权，
+        //   是典型的乱炸浪费。
         if (remainingAfterBomb > 0 && remainingAfterBomb <= 3) {
-          return bomb;
+          const remainingCards = this.cards.filter(c => !bomb.some(bc => bc.id === c.id));
+          const remainingHand = getHandType(remainingCards, this.level);
+          if (remainingHand) return bomb; // 炸后一手走完
+          if (remainingCards.every(c => {
+            const v = getLogicValue(c.rank, this.level);
+            return v >= 17; // 级牌(19)/小王(20)/大王(21)：炸了拿控制后可一张张收尾
+          })) return bomb;
         }
       }
     }
@@ -1929,6 +1988,16 @@ export class Bot {
       score -= remaining.length * 0.3;
       return { cards, score };
     });
+    // ★ 终局防护：下家敌人只剩1张且对手出的是单张时，不能挑最小单张跟
+    //   （小单会被下家那张牌直接压走送头游）。改挑"最高单张"来封牌（垫高）。
+    if (this.nextEnemyHasOne() && target.type === HandType.Single) {
+      scored.sort((a, b) => {
+        const va = getLogicValue(a.cards[0].rank, this.level);
+        const vb = getLogicValue(b.cards[0].rank, this.level);
+        return vb - va;
+      });
+      return scored[0].cards;
+    }
     scored.sort((a, b) => a.score - b.score);
     return scored[0].cards;
   }
@@ -1937,12 +2006,24 @@ export class Bot {
     if (beats.length === 0) return null;
     const scored = beats.map(cards => {
       const hand = getHandType(cards, this.level);
-      let score = hand ? hand.value : 999;
+      let score = 0;
+      if (hand) {
+        score += hand.value;
+        if (hand.type === HandType.Bomb || hand.type === HandType.StraightFlush) score += 100;
+        if (hand.type === HandType.FourKings) score += 500;
+      }
+      // ★ 修复：挡牌也要"用最小的够用牌"，别一挡就把级牌/大牌/王全砸出去
+      //   （原来按 value 降序挑最大的，残局会为挡一副对子把级牌对/大对子打光）。
+      for (const c of cards) {
+        if (c.isWild || c.rank === this.level) score += 30;       // 级牌/万能牌是控制牌，尽量省
+        else if (c.rank === Rank.BigJoker || c.rank === Rank.SmallJoker) score += 40;
+        else if (c.rank === Rank.Ace || c.rank === Rank.King) score += 10; // A/K也算大牌
+      }
       const remaining = this.cardsAfter(cards);
-      score += remaining.length * 0.3;
+      score -= remaining.length * 0.3;
       return { cards, score };
     });
-    scored.sort((a, b) => b.score - a.score);
+    scored.sort((a, b) => a.score - b.score);
     return scored[0].cards;
   }
 
@@ -2055,6 +2136,11 @@ export class Bot {
       }
     }
 
+    // ★ 修复：即使走"允许拆牌"的跟牌路径，拆顺子/连对/钢板/同花顺也是亏的
+    //   （剩下的全是散牌）。三带二/三条/对子的合理拆分不受影响。
+    if (target.type !== HandType.Bomb && target.type !== HandType.StraightFlush && target.type !== HandType.FourKings && target.type !== HandType.ThreeKings) {
+      return result.filter(beats => !this.isMultiRankBreak(beats));
+    }
     return result;
   }
 
@@ -2063,7 +2149,7 @@ export class Bot {
   private decideBomb(target: Hand, lastPlayerIndex: number): Card[] | null {
     if (this.isAlly(lastPlayerIndex)) return null;
 
-    const isBomb = target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings;
+    const isBomb = target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings || target.type === HandType.ThreeKings;
     const enemyCards = this.handsInfo[lastPlayerIndex];
     const myCards = this.cards.length;
     const partnerCards = this.handsInfo[this.partnerIdx()];
@@ -2249,6 +2335,62 @@ export class Bot {
     return null;
   }
 
+  /**
+   * 下家敌人只剩1张时，找"最高的、不拆规划的"单张来压对手的单张（封牌/垫高）。
+   * 用 findAllBeatsPreservingPlan 保证不拆散对子/三条/炸弹等规划结构。
+   */
+  private findHighestPreservingSingleBeat(targetVal: number): Card[] | null {
+    const beats = this.findAllBeatsPreservingPlan({ type: HandType.Single, cards: [], value: targetVal });
+    if (beats.length === 0) return null;
+    let best: Card[] | null = null;
+    let bestVal = -1;
+    for (const b of beats) {
+      const v = getLogicValue(b[0].rank, this.level);
+      if (v > bestVal) { bestVal = v; best = b; }
+    }
+    return best;
+  }
+
+  /**
+   * 这手跟牌是否"拆散"了某个顺子/连对/钢板规划组？
+   * ★ 掼蛋大师视角：顺子/连对/钢板是多rank连续组合，拆出一张（或拆成对子/三条）后
+   *   剩下的全是散牌（如 56789 拆一张出单 -> 剩 4 张散单），等于自废一手强牌。
+   *   跟牌时几乎永远不该这么拆（除非炸弹封堵）。三带二/三条/对子不属于此类——
+   *   拆对子压对子、拆三条压三条后剩余仍是成手，是合理的。
+   */
+  private isMultiRankBreak(cards: Card[]): boolean {
+    // 这次跟牌拆掉了哪些 rank、用掉了哪些牌
+    const removed = new Map<number, number>();
+    const removeIds = new Set<string>();
+    for (const c of cards) {
+      removed.set(c.rank, (removed.get(c.rank) || 0) + 1);
+      removeIds.add(c.id);
+    }
+    for (const g of this.handPlan.groups) {
+      const h = getHandType(g.cards, this.level);
+      if (!h) continue;
+      // 顺子/连对/钢板/同花顺（含同花顺这种炸弹）都是多rank组合：
+      // 拆出一张跟小牌 = 把一手强牌（甚至炸弹）拆成 4 张散牌。
+      if (h.type !== HandType.Straight && h.type !== HandType.Tube &&
+          h.type !== HandType.Plate && h.type !== HandType.StraightFlush) continue;
+      // 整组牌都用掉了 = 是在"打出这个组合"（如出整顺子压顺子），不算拆
+      if (g.cards.every(c => removeIds.has(c.id))) continue;
+      // 组内各 rank 需要的张数
+      const needed = new Map<number, number>();
+      for (const c of g.cards) needed.set(c.rank, (needed.get(c.rank) || 0) + 1);
+      // 按 rank 判断：跟完这手牌后，若该多rank组合已无法凑齐 -> 拆散了它
+      // （用 rank 计数而非卡牌id，避免"手上有3张11，出一张11"被误判为拆顺子）
+      let broken = false;
+      for (const [rank, need] of needed) {
+        const totalHave = this.cards.filter(c => c.rank === rank).length;
+        const willRemove = removed.get(rank) || 0;
+        if (totalHave - willRemove < need) { broken = true; break; }
+      }
+      if (broken) return true;
+    }
+    return false;
+  }
+
   private findAllBeatsPreservingPlan(target: Hand): Card[][] {
     const result: Card[][] = [];
 
@@ -2310,12 +2452,14 @@ export class Bot {
             const groupSize = this.countSameRank(pair[0].rank);
             if (groupSize >= 4) continue; // 炸弹绝对不拆
             const r = pair[0].rank;
-            // 对子可在plan中存在：独立Pair 或 三带二附属对子 或 连对/钢板的一部分
-            const inPlan = planGroups.has('Pair:' + val)
-              || planGroups.has('TripsWithPair:' + val)
-              || planGroups.has('Tube:' + val)
-              || planGroups.has('Plate:' + val);
-            if (inPlan) result.push(pair);
+            // ★ 修复：只有"独立对子"或"三带二的对子部分"可拆来压对子。
+            //   顺子/连对/钢板的多rank组合绝不拆（拆了剩一堆散牌）。
+            //   原来用 planGroups.has('TripsWithPair:' + val) 判断三带二附属对子
+            //   是错的：三带二的plan键值取的是"三条部分"的value，对子永远匹配不上。
+            const inIndependentPair = planGroups.has('Pair:' + val);
+            const inTripsWithPairPair = this.tripsWithPairPairRanks.has(r);
+            if (!inIndependentPair && !inTripsWithPairPair) continue;
+            result.push(pair);
           }
         }
         break;
@@ -2328,10 +2472,10 @@ export class Bot {
             const groupSize = this.countSameRank(t[0].rank);
             if (groupSize >= 4) continue; // 炸弹绝对不拆
             const r = t[0].rank;
-            // 三条可在plan中存在：独立Trips 或 三带二的三条 或 钢板的一部分
+            // ★ 修复：只有"独立三条"或"三带二的三条部分"可拆来压三条。
+            //   钢板(999888)里的三条绝不拆（拆了剩一堆散牌）。
             const inPlan = planGroups.has('Trips:' + val)
-              || planGroups.has('TripsWithPair:' + val)
-              || planGroups.has('Plate:' + val);
+              || planGroups.has('TripsWithPair:' + val);
             if (inPlan) result.push(t);
           }
         }
@@ -2403,6 +2547,13 @@ export class Bot {
         }
         break;
       }
+    }
+    // ★ 修复：所有常规牌型跟牌时，绝不拆散顺子/连对/钢板/同花顺规划组
+    //   （拆一张顺子出单张=把一手强牌拆成 4 张散牌；拆钢板的三条配三带二同理）。
+    //   三带二/三条/对子本身的合理拆分（如拆KK配555压对子）不受影响；
+    //   出整手同型组合（如整顺子压顺子）也不受影响。
+    if (target.type !== HandType.Bomb && target.type !== HandType.StraightFlush && target.type !== HandType.FourKings && target.type !== HandType.ThreeKings) {
+      return result.filter(beats => !this.isMultiRankBreak(beats));
     }
     return result;
   }
@@ -2549,6 +2700,14 @@ export class Bot {
     const tBomb = target.type === HandType.Bomb;
     const tSF = target.type === HandType.StraightFlush;
     const tKings = target.type === HandType.FourKings;
+    // ★ 修复：三王炸(ThreeKings)在 compareHands 里压过所有普通炸弹/同花顺，
+    //   只有四大天王能压它。不能当普通非炸弹目标拿普通炸去压（会是非法跟牌）。
+    const tThreeKings = target.type === HandType.ThreeKings;
+
+    if (tThreeKings) {
+      if (kings) return kings;
+      return null;
+    }
 
     if (!tBomb && !tSF && !tKings) {
       if (bombs.length > 0) return bombs[0].cards;
@@ -2581,7 +2740,9 @@ export class Bot {
         if (b.cards.length > tCount) return b.cards;
       }
       // 张数更多也没有，用同花顺/天王炸
-      if (sfs.length > 0) return sfs[0].cards;
+      // ★ 修复：同花顺强度=5.5，只压得过 ≤5 张的炸弹；面对 6+ 张炸弹
+      //   出同花顺是非法跟牌（会被判"牌不够大"）。天王炸(四大天王)压一切。
+      if (tCount <= 5 && sfs.length > 0) return sfs[0].cards;
       if (kings) return kings;
     }
 
@@ -2694,6 +2855,7 @@ export class Bot {
     const safePairs = pairs.filter(p => {
       const rank = p.cards[0].rank;
       const cnt = this.countSameRank(rank);
+      if (rank > Rank.Ace) return false; // ★ 王不能配成三带二的对子（规则不允许，会产生非法跟牌）
       return cnt < 4; // 4+张是炸弹，不拆
     });
     // 回退路径也绝不能拆炸弹：没有安全对子就返回 null（宁可不出三带二也不破坏炸弹）
