@@ -3,6 +3,7 @@ import { createDeck, createThreePlayerDeck, shuffleDeck, updateCardProperties } 
 import { getHandType, compareHands, sortCards, getLargestCard, getLogicValue } from '../shared/rules';
 import { Card, Hand, HandType, GameMode, GameVariant, SkillCard, SkillCardType, Suit, Rank, HistoryEntry, HistoryEventType } from '../shared/types';
 import { Bot, CardTracker } from '../shared/bot';
+import { saveGameRecord } from './gameRecorder';
 
 interface Player {
   id: string;
@@ -77,6 +78,12 @@ export class Game {
   history: HistoryEntry[] = [];
   private historyIdCounter: number = 0;
   currentRound: number = 0;
+  
+  // 每局落盘记录（复盘用）
+  private recordWritten: boolean = false;
+  initialHands: Card[][] = [];
+  startedAt: string = '';
+  resultType: string = '';
 
   constructor(io: Server, roomId: string, players: Player[], gameMode: GameMode = GameMode.Normal, gameVariant: GameVariant = GameVariant.FourPlayer) {
     this.io = io;
@@ -140,6 +147,11 @@ export class Game {
       console.log(`[Game] Destroying game instance for room ${this.roomId}`);
       this.isActive = false;
       this.clearAllTimeouts();
+      
+      // 兜底：如果这局还没落盘但已经出过牌（强制结束/房间解散），也记录为 interrupted
+      if (!this.recordWritten && this.history.some(e => e.type === HistoryEventType.Play || e.type === HistoryEventType.Pass)) {
+          saveGameRecord(this, 'interrupted');
+      }
       
       // Unbind all socket listeners
       this.players.forEach(p => {
@@ -240,6 +252,11 @@ export class Game {
     // Process hands
     this.hands = this.hands.map(h => updateCardProperties(h, this.level));
     this.hands = this.hands.map(h => sortCards(h, this.level));
+    
+    // 记录发牌后的原始手牌 + 开局时间（供每局落盘复盘用）
+    this.initialHands = this.hands.map(h => [...h]);
+    this.startedAt = new Date().toISOString();
+    this.recordWritten = false;
     
     // Reset skip flags
     this.skipNextTurn = [false, false, false, false];
@@ -671,7 +688,7 @@ export class Game {
           HistoryEventType.Play,
           `${this.players[seatIndex].name} 出牌: ${handTypeName} (${this.getCardDescription(cards)})`,
           seatIndex,
-          { cards, handType: hand.type, cardsCount: cards.length }
+          { cards, handType: hand.type, cardsCount: cards.length, remainingHand: this.hands[seatIndex] }
       );
       
       if (this.hands[seatIndex].length === 0) {
@@ -1095,12 +1112,16 @@ export class Game {
           resultType = `Team ${this.winners[0] % 2} 保级`;
       }
       
+      this.resultType = resultType;
       this.addHistoryEntry(
           HistoryEventType.GameEnd,
           `游戏结束！${resultType} - 排名: ${winnerNames}`,
           undefined,
           { winners: this.winners, resultType }
       );
+      
+      // 每局落盘完整记录（复盘用），在广播/回调之前写盘保证数据完整
+      saveGameRecord(this, 'finished');
       
       // Broadcast final game state FIRST so clients see the last hand
       this.broadcastGameState();

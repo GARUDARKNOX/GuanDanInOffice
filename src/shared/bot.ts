@@ -404,8 +404,12 @@ class HandPlan {
         .sort((a, b) => b.rank - a.rank);
 
       // 滑动窗口找连续5张
+      // ★ 修复：窗口里若已有卡被前面的同花顺占用则跳过——否则会提取互相重叠的
+      //   同花顺（如 9-8-7-6-5 和 8-7-6-5-4 共用4张卡），造成配牌重复使用卡片、
+      //   出现"假炸弹"幻觉、手牌一变配牌就整体跳变（配牌突然全变事故）。
       for (let i = 0; i <= suitCards.length - 5; i++) {
         const window = suitCards.slice(i, i + 5);
+        if (window.some(c => usedIds.has(c.id))) continue; // 已用于别的同花顺的卡不再用
         const ascRanks = window.map(c => c.rank).sort((a, b) => a - b);
         if (isConsecutive(ascRanks)) {
           const hand = getHandType(window, 2); // level 不影响同花顺识别
@@ -454,6 +458,8 @@ class HandPlan {
       for (let i = 0; i <= suitCards.length - 4 && wilds().length > 0; i++) {
         const w = suitCards.slice(i, i + 4);
         if (!isConsecutive(w.map(c => c.rank))) continue;
+        // ★ 修复：窗口里已有被占用的卡则跳过（与纯同花顺同理，防重叠重复配牌）
+        if (w.some(c => usedIds.has(c.id))) continue;
 
         // 尝试在前后补一张万能牌组成5张同花顺
         const wCard = wilds()[0];
@@ -711,17 +717,21 @@ class HandPlan {
       case HandType.Bomb:          score += 0;  break;
     }
     score += grp.value / 5;
-    // 三带二：对子价值高于三条价值时扣分（大的对子不该拿来配三带二）
+    // ★ 大师配牌修正：三带二该"小三张配小对子"甩弱牌、留大三条/大对子作控制，
+    //   且大配大、小配小（避免交叉配：大AAA带小44 + 小333配大KK）。
+    //   原来 +grp.value/5 反而奖励"大三条配三带二"，导致交叉配胜出；
+    //   而且 pairVal>=13 → -30 误伤"大配大"(AAA+KK 也被罚)。
     if (grp.type === HandType.TripsWithPair) {
       const pairRank = grp.cards[3].rank;
       const pairVal = getLogicValue(pairRank, level);
       const tripVal = grp.value;
-      // 级牌三条配大对子(K/A) → 重罚，级牌和KK都应留作控制
-      if (grp.value >= 15 || pairVal >= 13) {
-        score -= 30; // 级牌三条/大对子配三带二是浪费
-      }
-      // 大对子配小三张扣分
-      if (pairVal > tripVal) score -= 15;
+      // 三条价值越高越该留作控制 → 配三带二反向扣分（333:-3, QQQ:-12, AAA:-14）
+      score -= tripVal;
+      // 用大对子(K/A/级牌对)配小三张是浪费 → 对子明显大于三条时罚
+      //   （333配KK/AA罚；QQQ/AAA配KK是"大配大"不罚；有更小对子时自然选小对子）
+      if (pairVal - tripVal >= 3) score -= 15;
+      // 级牌三条绝不配三带二（级牌留作控制）
+      if (tripVal >= 15) score -= 30;
       const pairCnt = remaining.filter(c => c.rank === pairRank).length;
       if (pairCnt === 3) score -= 12; // 拆了三条
     }
@@ -1208,6 +1218,32 @@ export class Bot {
     const allOut = this.tryPlayAll();
     if (allOut) return allOut;
 
+    // === 必胜冲刺：还在场上的所有对手手牌数都 < 4 张 ===
+    // 他们凑不出4张以上的组合、也没有炸弹，所以我手里的任何≥4张成型组合
+    // (三带二/顺子/连对/钢板)都是必胜的——直接出张数最多的那个冲牌、保住出牌权。
+    // 必须放在所有分支之前：否则下家敌人剩1张时会先走 nextEnemyHasOne 分支，
+    // 把最大单张(如A)或拆炸弹出单张(如JJJJ拆J)打出去，被对手唯一一张大牌压走、
+    // 白白把必胜的 678910 顺子 / 34567 顺子捂在手里送对手头游（BOT2 对手都<4张
+    // 却先出单张事故）。炸弹/同花顺不在此冲——它们留底做绝对控制。
+    const activeEnemies = [0, 1, 2, 3].filter(s => !this.isAlly(s) && this.handsInfo[s] > 0);
+    if (activeEnemies.length > 0 && activeEnemies.every(s => this.handsInfo[s] < 4)) {
+      const winningCombos = this.handPlan.groups.filter(g => {
+        const h = getHandType(g.cards, this.level);
+        if (!h || h.type === HandType.Bomb || h.type === HandType.StraightFlush || h.type === HandType.FourKings || h.type === HandType.ThreeKings) return false;
+        return g.cards.length >= 4;
+      });
+      if (winningCombos.length > 0) {
+        // 张数多优先(清牌最多)，同张数选价值小(小组合先出、大组合留收尾)
+        winningCombos.sort((a, b) => {
+          if (a.cards.length !== b.cards.length) return b.cards.length - a.cards.length;
+          const ha = getHandType(a.cards, this.level);
+          const hb = getHandType(b.cards, this.level);
+          return (ha?.value || 0) - (hb?.value || 0);
+        });
+        if (this.canPlay(winningCombos[0].cards)) return winningCombos[0].cards;
+      }
+    }
+
     // === 终局保护：下家敌人剩1张 -> 绝对不出单张 ===
     if (this.nextEnemyHasOne() && this.cards.length > 1) {
       const nonSingle = this.findBestNonSingle();
@@ -1216,7 +1252,11 @@ export class Bot {
     }
 
     // === 队友快走牌(≤5张) -> 送队友需要的牌型 ===
-    if (this.allyNearOut()) {
+    // ★ 修复：只有自己牌多(中局)才送队友；自己已进入终局(≤12张)时必须先冲自己的
+    //   成型组合——BOT2 剩 999JJ三带二+2+5、对手皆濒走时却先出单张2去"送队友"，
+    //   被对手大单(如J)压走控制、送对手走完，三带二被压后差点走不掉。掼蛋大师原则：
+    //   中局帮队友抬牌，终局有成型组合先冲自己保控制。
+    if (this.allyNearOut() && this.cards.length > 12) {
       const weak = this.findWeakestPlanPlay();
       if (weak) return weak;
     }
@@ -1283,6 +1323,80 @@ export class Bot {
       }
     }
 
+    // ★ 牌力强(≥2炸弹)且只剩散牌(单张/对子)时，主动用最小炸抢节奏——
+    //   否则抱着一堆大炸墨迹出散牌探路，把节奏让给对手、对手趁机用炸清牌头游
+    //   （BOT2 持 3炸+大王+级牌却出 55/9 散牌墨迹，seat0 用8888/QQQQ主动清牌头游）。
+    //   ★ 修复：只在"有绝对大炸(6张，几乎无人能压) / 对手濒走(<4张) / 自己快走(≤8张)"
+    //     时才主动用炸——5炸甚至4炸主动领出都是白送(4444 被压就废；BOT2 持 5555/666万/
+    //     JJJJ/QQQQQ 连续主动炸4个、剩散牌末游事故)。掼蛋大师原则：只有6炸/天王炸这种
+    //     绝对控制才配主动换出牌权且稳赚；普通炸一律留底，用来压对手的炸/阻断濒走。
+    if (myBombs >= 2) {
+      const looseOnly = nonBombGroups.every(g => {
+        const h = getHandType(g.cards, this.level);
+        return h && (h.type === HandType.Single || h.type === HandType.Pair);
+      });
+      if (looseOnly && myCards > 6) {
+        const bombGroups = myGroups.filter((_, i) => bombIdxs.has(i));
+        const maxBombLen = bombGroups.reduce((m, b) => Math.max(m, b.cards.length), 0);
+        const activeEnemies = [0, 1, 2, 3].filter(s => !this.isAlly(s) && this.handsInfo[s] > 0);
+        const enemiesLow = activeEnemies.length > 0 && activeEnemies.every(s => this.handsInfo[s] < 4);
+        if (maxBombLen >= 6 || enemiesLow || myCards <= 8) {
+          bombGroups.sort((a, b) => bombStrength(a, this.level) - bombStrength(b, this.level));
+          if (bombGroups.length > 0 && this.canPlay(bombGroups[0].cards)) return bombGroups[0].cards;
+        }
+      }
+    }
+
+    // ★ 修复：先出成型的顺子/连对/钢板（清牌效率高、还难被压）。
+    //   原本"安全牌"规则(0.5)排在它前面，会把手里最大的对子(如AA)当"安全牌"先打出，
+    //   导致握着 56789 顺子却先甩 AA、AA 被双小王压掉抢走控制（BOT 先出AA复盘事故）。
+    //   掼蛋大师思路：先出成型顺子/钢板减少手数，AA 这种控制牌留最后收尾。
+    const mySequences = nonBombGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && (h.type === HandType.Straight || h.type === HandType.Tube || h.type === HandType.Plate);
+    });
+    if (mySequences.length > 0) {
+      // 钢板/连对/顺子都是清牌效率高的组合，按张数降序（优先出6张的钢板/连对）
+      mySequences.sort((a, b) => {
+        const ha = getHandType(a.cards, this.level);
+        const hb = getHandType(b.cards, this.level);
+        // 张数多优先（清牌更多），同张数比value小优先
+        if (a.cards.length !== b.cards.length) return b.cards.length - a.cards.length;
+        return (ha?.value || 0) - (hb?.value || 0);
+      });
+      if (this.canPlay(mySequences[0].cards)) return mySequences[0].cards;
+    }
+
+    // ★ 修复：终局(剩≤12张)留大压底——手里有大成型组合(三带二/钢板/连对/顺子≥5张)
+    //   且还有散单时，先把最小的散单清掉、把大组合留作最后一手收尾，避免"先甩大组合、
+    //   剩一堆小牌走不掉"（要靠队友留风才能走完）。下家敌人濒走(≤5张)时除外——那必须
+    //   先出稳赢的组合保住出牌权；王也留底不先出。
+    const nextSeatL = (this.seatIndex + 1) % 4;
+    const nextEnemyL = this.isAlly(nextSeatL) ? 999 : this.handsInfo[nextSeatL];
+    if (myCards <= 12 && nextEnemyL > 5) {
+      const hasBigCombo = nonBombGroups.some(g => {
+        const h = getHandType(g.cards, this.level);
+        if (!h || g.cards.length < 5) return false;
+        // ★ 修复：三带二要"够强"(v≥10)才值得留底——弱三带二(如33322 v3)不配留底，
+        //   否则终局会为"留底"先甩散单被压、弱三带二最后也走不掉（BOT2 先甩大牌剩
+        //   小牌输掉事故：#27 手 33322+4+66+7 却先出散单 4 被 seat3 压走、丢控制，
+        //   最后剩 1 张小牌走不完）。强三带二(QQQ+44 v12 等)才该留作收尾。
+        if (h.type === HandType.TripsWithPair) return h.value >= 10;
+        return h.type === HandType.Straight || h.type === HandType.Tube || h.type === HandType.Plate;
+      });
+      if (hasBigCombo) {
+        const looseSingles = nonBombGroups.filter(g => getHandType(g.cards, this.level)?.type === HandType.Single);
+        if (looseSingles.length > 0) {
+          looseSingles.sort((a, b) => getLogicValue(a.cards[0].rank, this.level) - getLogicValue(b.cards[0].rank, this.level));
+          for (const s of looseSingles) {
+            const c = s.cards[0];
+            if (c.rank === Rank.BigJoker || c.rank === Rank.SmallJoker) continue; // 王留底控制
+            if (this.canPlay(s.cards)) return s.cards;
+          }
+        }
+      }
+    }
+
     // 按牌型分组，找"有大小两组"的类型（出小留大收回）
     const typeMap = new Map<HandType, { cards: Card[]; value: number; index: number }[]>();
     for (let i = 0; i < nonBombGroups.length; i++) {
@@ -1309,7 +1423,15 @@ export class Bot {
       for (const g of nonBombGroups) {
         const hand = getHandType(g.cards, this.level);
         if (!hand) continue;
-        if (hand.type === HandType.Single || hand.type === HandType.Pair) {
+        // ★ 修复：单张彻底不走"安全牌"——单张比大小、任何更大的单张都能压，
+        //   "rank在外耗尽"只防同rank、不防更大单，安全意义有限；反而会先出
+        //   rank耗尽的非最小单张(如8)、把最小的2留到最后（BOT2 留2末游事故）。
+        //   散单张统一交给最后的单张步骤"出最小探路、大牌留底收尾"。
+        if (hand.type === HandType.Pair) {
+          // ★ 修复：终局(≤12张)时"安全牌"不抢对子的出牌顺序——否则会把最大对子
+          //   (如AA)当安全牌先出，而终局正确顺序是先出小对子(QQ)、AA 留最后收尾
+          //   （AA 被双小王/双大王压掉就送控制）。
+          if (myCards <= 12) continue;
           const cardRank = g.cards[0].rank;
           if (this.getRemainingOutsideMyHand(cardRank) === 0) {
             if (this.canPlay(g.cards)) return g.cards;
@@ -1329,8 +1451,31 @@ export class Bot {
       }
     }
 
+    // ★ 散单张优先探路：手里有散单张(尤其最小的2/3/4)时，先出最小的散单(非王)。
+    //   单张是全场最难回收的牌——最小的2谁都压得过、留底必死；对子/三带二相对
+    //   好处理可后出。原来单张步骤排在对子/三带二之后，BOT2 先出完 88/1010/AA/
+    //   JJJ66/KKK33、把唯一散单2留到最后一手（BOT2 先出大牌最后剩2末游事故）。
+    //   先出最小散单探路（被压就让对手出、不浪费控制），大牌/组合留后收尾。
+    //   王/级牌(绝对控制)不参与探路，留作收尾。
+    const probeSingles = nonBombGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && h.type === HandType.Single;
+    });
+    if (probeSingles.length > 0) {
+      probeSingles.sort((a, b) => getLogicValue(a.cards[0].rank, this.level) - getLogicValue(b.cards[0].rank, this.level));
+      for (const s of probeSingles) {
+        const c = s.cards[0];
+        if (c.rank === Rank.BigJoker || c.rank === Rank.SmallJoker) continue;
+        if (this.canPlay(s.cards)) return s.cards;
+      }
+    }
+
     // 1. 找有大小两组的同类型 -> 出小的，大的留着收回
+    // ★ 修复：排除单张——散单张不该在成型组合(三带二/对子)之前"出小留大"，否则终局
+    //   会先甩散单(如 #27 的 4)被对手压走丢控制、把 33322 三带二留后面最后走不掉
+    //   （BOT2 先甩大牌剩小牌输掉事故）。单张统一交给最后的单张步骤"出小探路"。
     for (const [type, groups] of typeMap) {
+      if (type === HandType.Single) continue; // 单张不在此处出
       if (groups.length >= 2) {
         groups.sort((a, b) => a.value - b.value);
         const small = groups[0];
@@ -1338,39 +1483,10 @@ export class Bot {
       }
     }
 
-    // 2. 顺子/连对/钢板：清牌效率高(5-6张1手)，优先出
-    //    掼蛋大师思路：先出成型的顺子/连对/钢板减少手数
-    const mySequences = nonBombGroups.filter(g => {
-      const h = getHandType(g.cards, this.level);
-      return h && (h.type === HandType.Straight || h.type === HandType.Tube || h.type === HandType.Plate);
-    });
-    if (mySequences.length > 0) {
-      // 钢板/连对/顺子都是清牌效率高的组合，按张数降序（优先出6张的钢板/连对）
-      mySequences.sort((a, b) => {
-        const ha = getHandType(a.cards, this.level);
-        const hb = getHandType(b.cards, this.level);
-        // 张数多优先（清牌更多），同张数比value小优先
-        if (a.cards.length !== b.cards.length) return b.cards.length - a.cards.length;
-        return (ha?.value || 0) - (hb?.value || 0);
-      });
-      if (this.canPlay(mySequences[0].cards)) return mySequences[0].cards;
-    }
-
-    // 3. 对子：情况不明对子先行，出最小的
-    const myPairs = nonBombGroups.filter(g => {
-      const h = getHandType(g.cards, this.level);
-      return h && h.type === HandType.Pair;
-    });
-    if (myPairs.length > 0) {
-      myPairs.sort((a, b) => {
-        const ha = getHandType(a.cards, this.level);
-        const hb = getHandType(b.cards, this.level);
-        return (ha?.value || 0) - (hb?.value || 0);
-      });
-      if (this.canPlay(myPairs[0].cards)) return myPairs[0].cards;
-    }
-
-    // 4. 三带二：消耗5张，清牌效率高
+    // ★ 修复：先出三带二（清5张），再出对子——原来"对子先行"会把大控制对子
+    //   （级牌对22/AA/KK）当探路牌先甩掉（BOT2 先出级牌22 事故：手里 QQQ+88 三带二
+    //   却先出 2★2★，再 QQQ+88，把最大对子白白交出）。成型组合(三带二/顺子/钢板)
+    //   清牌效率高应优先出；对子(尤其大控制对子)留后收尾。与上方"顺子/钢板优先"一致。
     const myTripsWithPair = nonBombGroups.filter(g => {
       const h = getHandType(g.cards, this.level);
       return h && h.type === HandType.TripsWithPair;
@@ -1382,6 +1498,20 @@ export class Bot {
         return (ha?.value || 0) - (hb?.value || 0);
       });
       if (this.canPlay(myTripsWithPair[0].cards)) return myTripsWithPair[0].cards;
+    }
+
+    // 对子：情况不明对子先行，出最小的（小对子探路；大控制对子自然留后）
+    const myPairs = nonBombGroups.filter(g => {
+      const h = getHandType(g.cards, this.level);
+      return h && h.type === HandType.Pair;
+    });
+    if (myPairs.length > 0) {
+      myPairs.sort((a, b) => {
+        const ha = getHandType(a.cards, this.level);
+        const hb = getHandType(b.cards, this.level);
+        return (ha?.value || 0) - (hb?.value || 0);
+      });
+      if (this.canPlay(myPairs[0].cards)) return myPairs[0].cards;
     }
 
     // 5. 单张：大牌留着收回，出小牌探路
@@ -1736,28 +1866,37 @@ export class Bot {
       const targetIsBomb = target.type === HandType.Bomb || target.type === HandType.StraightFlush || target.type === HandType.FourKings || target.type === HandType.ThreeKings;
       if (targetIsBomb) return null;
 
-      // 队友出中小牌(value≤13) -> 顺牌过，帮队友抬牌
-      if (target.value <= 13) {
-        const beats = this.findAllBeatsPreservingPlan(target);
+      // ★ 自己濒走(≤3张) -> 抢控制冲刺走完（用最小能压的牌，能走先走）
+      if (this.cards.length <= 3) {
+        const beats = this.findAllBeats(target);
         if (beats.length > 0) {
           return this.pickSmallestBeat(beats, target);
         }
       }
 
-      // 队友快走牌(≤5张) -> 用最小牌压，减少对手接牌机会
+      // 队友快走牌(≤5张) -> 帮队友挡，减少对手接牌机会
+      // ★ 修复：帮挡只用够用的普通牌——绝不用大王/小王/逢人配/级牌去挡队友的中小牌
+      //   （那是把绝对控制牌砸到队友牌上、白送核心资源，BOT2 打联盟大牌事故：用大王
+      //   压队友单6、用小王某压队友Q）。若最小能压的只剩控制牌，宁可不挡——王/级牌/
+      //   逢人配留着后面自己控制/收尾。
       if (this.handsInfo[partner] <= 5) {
-        const beats = this.findAllBeatsPreservingPlan(target);
+        const usable = (bs: Card[][]) => bs.filter(b => !b.some(c => c.isWild || c.rank === Rank.BigJoker || c.rank === Rank.SmallJoker || c.rank === this.level));
+        const beats = usable(this.findAllBeatsPreservingPlan(target));
         if (beats.length > 0) {
           return this.pickSmallestBeat(beats, target);
         }
-        // 拆牌也要压
-        const allBeats = this.findAllBeats(target);
+        // 拆牌也要压（同样不用控制牌）
+        const allBeats = usable(this.findAllBeats(target));
         if (allBeats.length > 0) {
           return this.pickSmallestBeat(allBeats, target);
         }
       }
 
-      // 队友牌多且打大牌(value>13) -> 不压，让队友继续出
+      // ★ 修复：队友牌多且自己也没濒走 -> 绝不跟队友的牌，让队友控制。
+      //   原来队友出≤13就"顺牌过"用最小能压的跟，会把逢人配/大王/AAA 砸到队友的
+      //   中小牌上：抢队友出牌权+浪费核心资源（BOT2 打联盟大牌事故：开局用 AAA22
+      //   压队友三带二、用逢人配压队友K、用大王压队友4）。掼蛋大师原则——队友出的
+      //   牌让队友自己控制，除非队友快走需帮挡、或自己濒走能冲刺。
       return null;
     }
     // 上家是队友（非对门），不压
@@ -1844,6 +1983,14 @@ export class Bot {
         const highBeat = this.findHighestPreservingSingleBeat(target.value);
         if (highBeat) return highBeat;
       }
+      // ★ 修复：跟牌绝不浪费大牌。planBeat 可能是规划组里的"双大王"这类大牌，
+      //   而 preservingBeats 里有更小的够用牌（如三带二附属对子 J★J★ 压 KK，
+      //   或非王单张压王单张）。两者合并取"最小的够用牌"，把大牌/王留作控制。
+      //   例: 对手 KK，我有 J★J★(19) 和 双大王(21) -> 用 J★J★。
+      const preservingBeats = this.findAllBeatsPreservingPlan(target);
+      if (preservingBeats.length > 0) {
+        return this.pickSmallestBeat([...preservingBeats, planBeat], target);
+      }
       return planBeat;
     }
 
@@ -1899,6 +2046,37 @@ export class Bot {
         return this.pickSmallestBeat(preservingBeats, target);
       }
       return this.pickSmallestBeat(preservingBeats, target);
+    }
+
+    // ★ 修复：对手(非队友)濒临走牌(≤10张)时，必须抢控制——
+    //   即使跟牌会拆掉规划里的顺子/钢板，也要压住。否则手握一堆能压的大单张
+    //   （如 10,J★,Q,K,A 顺子里的 J★/A/K/Q）却因"防拆顺子"被过滤掉，只能干看
+    //   对手一路跑光抢二游（BOT2 末游事故的根因）。拆一张大牌压住对手 > 保一手
+    //   可能永远打不出去的顺子。
+    if (!this.isAlly(lastPlayerIndex) && enemyCards > 0 && enemyCards <= 10) {
+      const urgentBeats = this.findAllBeats(target, true);
+      if (urgentBeats.length > 0) {
+        if (blockUrgency > 0) return this.pickBestFollowBeat(urgentBeats, target);
+        return this.pickSmallestBeat(urgentBeats, target);
+      }
+    }
+
+    // ★ 修复：对手出炸弹/同花顺/天王炸时，唯一能压的是炸弹——由 decideBomb 决定
+    //   是否对炸：该炸就炸，判定不炸就 Pass。绝不能让下面的 allBeats 兜底把炸弹
+    //   当"普通跟牌"打出去（无谓对炸浪费：如 #11 对手 6666、我方 13 张却用 J 炸弹压，
+    //   拆了 JJJ22 三带二还送掉炸弹）。对手濒走"必须炸断"的场景由上方 urgent-break
+    //   和 decideBomb 的 enemyThreat 判定处理。
+    const targetIsBombType2 = target.type === HandType.Bomb || target.type === HandType.StraightFlush
+      || target.type === HandType.FourKings || target.type === HandType.ThreeKings;
+    if (targetIsBombType2) {
+      if (this.countMyBombs() > 0 && !isAllyNext) {
+        const bomb = this.findBomb(target);
+        if (bomb) {
+          const bombPlay = this.decideBomb(target, lastPlayerIndex);
+          if (bombPlay) return bombPlay; // 该炸
+        }
+      }
+      return null; // 不炸 → Pass（炸弹类目标没有非炸弹跟牌）
     }
 
     // 兜底：普通跟牌（允许拆）
@@ -2027,7 +2205,7 @@ export class Bot {
     return scored[0].cards;
   }
 
-  private findAllBeats(target: Hand): Card[][] {
+  private findAllBeats(target: Hand, allowMultiRankBreak = false): Card[][] {
     const result: Card[][] = [];
 
     switch (target.type) {
@@ -2086,6 +2264,8 @@ export class Bot {
           const w = vals.slice(i, i + 5);
           if (!isConsecutive(w)) continue;
           if (w[4] <= target.value) continue;
+          // ★ 修复：炸弹rank(≥4张)绝不拆进顺子——4炸拆1张炸弹就没了，5炸拆1张也浪费
+          if (w.some(v => (groups.get(v)?.length || 0) >= 4)) continue;
           const cards: Card[] = w.map(v => groups.get(v)![0]);
           const hand = getHandType(cards, this.level);
           if (hand && hand.type === HandType.Straight && hand.value > target.value) {
@@ -2097,7 +2277,9 @@ export class Bot {
       case HandType.Tube: {
         const groups = this.groupByRawRank();
         const pairRanks = Array.from(groups.entries())
-          .filter(([r, cs]) => cs.length >= 2 && r >= 2 && r <= 14)
+          // ★ 修复：严格只用2张的rank组连对——4+张是炸弹绝不拆（原来 cs.length>=2
+          //   会把 JJJJJ/KKKK 炸弹各取2张组连对，白白拆掉两个炸弹）
+          .filter(([r, cs]) => cs.length === 2 && r >= 2 && r <= 14)
           .map(([r]) => r).sort((a, b) => a - b);
         for (let i = 0; i <= pairRanks.length - 3; i++) {
           const w = pairRanks.slice(i, i + 3);
@@ -2115,7 +2297,8 @@ export class Bot {
       case HandType.Plate: {
         const groups = this.groupByRawRank();
         const tripRanks = Array.from(groups.entries())
-          .filter(([r, cs]) => cs.length >= 3 && r >= 2 && r <= 14)
+          // ★ 修复：严格只用3张的rank组木板——4+张是炸弹绝不拆
+          .filter(([r, cs]) => cs.length === 3 && r >= 2 && r <= 14)
           .map(([r]) => r).sort((a, b) => a - b);
         for (let i = 0; i <= tripRanks.length - 2; i++) {
           const w = tripRanks.slice(i, i + 2);
@@ -2138,7 +2321,9 @@ export class Bot {
 
     // ★ 修复：即使走"允许拆牌"的跟牌路径，拆顺子/连对/钢板/同花顺也是亏的
     //   （剩下的全是散牌）。三带二/三条/对子的合理拆分不受影响。
-    if (target.type !== HandType.Bomb && target.type !== HandType.StraightFlush && target.type !== HandType.FourKings && target.type !== HandType.ThreeKings) {
+    //   allowMultiRankBreak=true（对手濒走必须抢控制时）则不过滤——拆一张大单张
+    //   压住对手，比手握大单张却因"防拆顺子"干看对手跑光抢二游强得多。
+    if (!allowMultiRankBreak && target.type !== HandType.Bomb && target.type !== HandType.StraightFlush && target.type !== HandType.FourKings && target.type !== HandType.ThreeKings) {
       return result.filter(beats => !this.isMultiRankBreak(beats));
     }
     return result;
@@ -2154,14 +2339,21 @@ export class Bot {
     const myCards = this.cards.length;
     const partnerCards = this.handsInfo[this.partnerIdx()];
 
-    // 队友已头游走掉（剩0张）-> 我方已保头游，不轻易浪费炸弹（仅4人模式有队友）
+    // 队友已头游走掉（剩0张）-> 我方已保头游，目标是抢二游/避免末游（仅4人模式有队友）
     // 只需快速出小牌抢二游/避免末游，炸弹留到濒临走牌时才用
     if (!this.isThreePlayer && partnerCards === 0) {
-      // 只有自己濒临走牌（能靠炸收尾，≤5张且有炸）才炸，否则省炸
-      if (myCards > 5) return null;
-      if (this.areAllCardsBombs()) return this.findBomb(target);
-      if (this.countMyBombs() >= 1) return this.findBomb(target);
-      return null;
+      // 自己濒临走牌（能靠炸收尾，≤5张且有炸）-> 炸了收尾
+      if (myCards <= 5) {
+        if (this.areAllCardsBombs()) return this.findBomb(target);
+        if (this.countMyBombs() >= 1) return this.findBomb(target);
+        return null;
+      }
+      // ★ 修复：对手（非队友）濒临走牌(≤10张)且我方无普通跟牌时，必须炸断！
+      //   原逻辑"牌多(>5)一律不炸"太保守：队友头游后本应抢二游，却放任对手
+      //   一路小牌跑光抢二游（手握多炸也只能干看）。现在对手濒走时直接炸断夺权。
+      const enemyThreat = !this.isAlly(lastPlayerIndex) && enemyCards > 0 && enemyCards <= 10;
+      if (!enemyThreat) return null;
+      return this.findBomb(target);
     }
 
     // 枪不打四：对家剩4张，不是炸弹就不炸
@@ -2192,15 +2384,31 @@ export class Bot {
       if (this.countMyBombs() >= 1) return this.findBomb(target);
     }
 
-    // 自己剩>15张 → 一般不浪费炸弹，但对手出大牌(≥13)且我有≥2炸时仍可炸
+    // 自己剩>15张 → 中前期绝不用炸压普通牌，炸弹留底（压炸弹/阻断濒走/自己冲刺）
+    //   ★ 修复：原来"对手出大牌(≥13)且有≥2炸仍可炸"会让 BOT2 剩25张时用 5555 炸
+    //     对手的普通顺子，然后连续烧炸(666万/JJJJ/QQQQQ)、剩一堆散牌末游
+    //     （BOT2 连炸4个事故）。炸弹是有限资源，中前期自己牌多时只该省不该烧；
+    //     濒走对手的炸断已在上面(enemyCards≤5/7/≤3)处理，这里一律不炸普通牌。
     if (myCards > 15) {
-      if (!(target.value >= 13 && this.countMyBombs() >= 2)) return null;
+      return null;
     }
 
     // ★ 手牌几乎全是炸弹（非炸弹≤2张）-> 果断炸，跳过保守逻辑
     const nonBombCnt = this.cards.filter(c => this.countSameRank(c.rank) < 4).length;
     if (this.countMyBombs() >= 2 && nonBombCnt <= 2 && !isBomb) {
       return this.findBomb(target); // 只有炸弹能压，直接炸
+    }
+
+    // ★ 修复：单张/对子属"廉价牌型"——用炸弹（尤其同花顺）压单/对是纯浪费：
+    //   对手就多走1张，出牌权总会回来。只有真需要阻断（下家敌人濒走1-5张）才值得炸。
+    //   出牌者濒走(enemyCards<=5/3)、自己濒走收尾(myCards<=5) 已在上面处理；
+    //   这里把下面所有"抢控制/压大牌/主动炸"规则对单/对一律关闭。
+    //   （0张=下家已走完不算威胁；对手剩大把牌时压一张单/对纯属烧炸）
+    const nextSeatBlock = (this.seatIndex + 1) % 4;
+    const nextEnemyCards = this.isAlly(nextSeatBlock) ? 999 : this.handsInfo[nextSeatBlock];
+    const nextEnemyNear = nextEnemyCards > 0 && nextEnemyCards <= 5;
+    if ((target.type === HandType.Single || target.type === HandType.Pair) && !nextEnemyNear) {
+      return null;
     }
 
     // ★★ 掼蛋大师：主动抢控制权（中前期也炸）
@@ -2342,9 +2550,19 @@ export class Bot {
   private findHighestPreservingSingleBeat(targetVal: number): Card[] | null {
     const beats = this.findAllBeatsPreservingPlan({ type: HandType.Single, cards: [], value: targetVal });
     if (beats.length === 0) return null;
+    // ★ 修复：阻断下家濒走(剩1张)时，用"最高的普通单张"封牌——Q/K/A 已能压过绝大多数
+    //   单张，小王/大王/级牌/逢人配这些绝对控制牌要留作收尾/控场。
+    //   原来直接取逻辑值最高(往往是王/级牌)，把绝对控制砸在对手的小单上
+    //   （BOT2 有单5+Q却用小王压对手单4、白送小王事故）。
+    //   若普通高牌不够用（只剩王/级牌能压），才退回用它们。
+    const normalPool = beats.filter(b => {
+      const c = b[0];
+      return c.rank !== Rank.BigJoker && c.rank !== Rank.SmallJoker && !c.isLevelCard && !c.isWild;
+    });
+    const pool = normalPool.length > 0 ? normalPool : beats;
     let best: Card[] | null = null;
     let bestVal = -1;
-    for (const b of beats) {
+    for (const b of pool) {
       const v = getLogicValue(b[0].rank, this.level);
       if (v > bestVal) { bestVal = v; best = b; }
     }
@@ -2757,7 +2975,12 @@ export class Bot {
       for (let i = 0; i <= suitCards.length - 5; i++) {
         const window = suitCards.slice(i, i + 5);
         if (isConsecutive(window.map(c => c.rank))) {
-          sfs.push({ cards: window, value: window[4].rank });
+          // ★ 修复：value 必须与 getHandType 出牌口径一致！用 window[4].rank 对
+          //   "A-2-3-4-5 自行车顺"会算出 14（A 当高牌），而实际出牌 getHandType
+          //   把 A 当低牌算成 5 —— 导致 bot 以为 v14 能压 v7 同花顺，打出去却是
+          //   v5 < v7 的非法跟牌（同花顺复盘事故）。改用 getHandType 的 value。
+          const hand = getHandType(window, this.level);
+          sfs.push({ cards: window, value: hand ? hand.value : window[4].rank });
         }
       }
     }
