@@ -1529,14 +1529,14 @@ export class Bot {
     //     绝对控制才配主动换出牌权且稳赚；普通炸一律留底，用来压对手的炸/阻断濒走。
     if (myBombs >= 1) {
       const bombGroups = myGroups.filter((_, i) => bombIdxs.has(i));
-      const maxBombLen = bombGroups.reduce((m, b) => Math.max(m, b.cards.length), 0);
       const activeEnemies = [0, 1, 2, 3].filter(s => !this.isAlly(s) && this.handsInfo[s] > 0);
       const enemiesLow = activeEnemies.length > 0 && activeEnemies.every(s => this.handsInfo[s] < 4);
       // ★ 修复：主动领出炸弹的唯一正当收益是"冲刺"——出完这颗炸后剩余牌能顺利走完。
-      //   原"myCards <= 12 就主动出炸"和"多炸+只剩散牌就抢节奏"都太激进，导致 BOT2
-      //   剩 12 张(9999※+55+77+1010+KK)却主动甩 9999※、剩 4 手对子走不完(#63 事故)。
-      //   现在只有：对手都濒走(<4) / 我有6张绝对大炸 / 出完最小炸后剩余≤1手(或全炸)
-      //   且我已残局(≤12) 才会主动领出炸弹；否则炸弹一律留底压对手的炸/阻断成型牌。
+      //   原"myCards <= 12 就主动出炸"、"多炸+只剩散牌就抢节奏"、"maxBombLen>=6 就领出"
+      //   都太激进。尤其是"有6炸就主动领出"：6张炸是超强控制资源，主动甩掉=浪费，
+      //   甩完下一手散牌照样可能被抢走出牌权（BOT 不是压牌时直接领出6炸的事故）。
+      //   现在只有两种情况才主动领炸：对手都濒走(<4) / 出完最小炸后剩余≤1手(或全炸)。
+      //   6炸/天王炸一律留底，用来压对手的炸、阻断成型牌、或以炸压炸。
       const sortedBombs = [...bombGroups].sort((a, b) => bombStrength(a, this.level) - bombStrength(b, this.level));
       const smallestBombCards = sortedBombs.length ? sortedBombs[0].cards : [];
       const afterSmallest = this.cards.filter(c => !smallestBombCards.some(bc => bc.id === c.id));
@@ -1545,18 +1545,12 @@ export class Bot {
         this.areAllCardsBombs();
       const shouldLeadBomb =
         enemiesLow ||
-        maxBombLen >= 6 ||
         (canFinishWithBomb && myCards <= 12);
-      // 开局牌太多时仍然留炸（6张绝对大炸 / 对手濒走 除外）
-      const notTooEarly = myCards <= 15 || enemiesLow || maxBombLen >= 6;
+      // 开局牌太多时仍然留炸
+      const notTooEarly = myCards <= 15 || enemiesLow;
       if (shouldLeadBomb && notTooEarly) {
-        // ★ 修复：有绝对大炸(6张)主动抢节奏时出6张大炸(几乎无人能压)，不出最小炸
-        //   ——原来出 bombGroups[0](最小) 会把 4张9999 白送(被更大炸压就废)。
-        //   安全约束：炸完必须还能掌控牌路，否则等于白送炸弹。
-        const useBig = maxBombLen >= 6;
-        const sorted = [...bombGroups].sort((a, b) => useBig
-          ? bombStrength(b, this.level) - bombStrength(a, this.level)
-          : bombStrength(a, this.level) - bombStrength(b, this.level));
+        // 主动领出时用最小的炸（大炸留底做绝对控制）
+        const sorted = [...bombGroups].sort((a, b) => bombStrength(a, this.level) - bombStrength(b, this.level));
         if (sorted.length > 0 && this.canControlAfterBomb() && this.canPlay(sorted[0].cards)) {
           return sorted[0].cards;
         }

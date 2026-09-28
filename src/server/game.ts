@@ -488,10 +488,12 @@ export class Game {
       if (r.card) return;
       const player = this.players[r.from];
       if (!player.isBot) return;
-      const hand = this.hands[r.from] || [];
+      // ★ 修复：还贡同样禁止用红桃级牌（逢人配）——它是万能牌，进贡时已禁止
+      //   （isWildLevelCard），还贡也绝不能把逢人配白送出去。取"最小且非逢人配"的牌。
+      const hand = (this.hands[r.from] || []).filter(c => !this.isWildLevelCard(c));
       if (hand.length === 0) return;
       const smallest = hand[hand.length - 1];
-      const real = hand.find(c => c.id === smallest.id);
+      const real = (this.hands[r.from] || []).find(c => c.id === smallest.id);
       if (!real) return;
       r.card = real;
       this.hands[r.from] = this.hands[r.from].filter(c => c.id !== real.id);
@@ -640,6 +642,12 @@ export class Game {
       // ★ 规则：不能还贡手里没有的牌（服务端强校验，防止凭空造牌/幽灵牌）
       if (!this.ownsCard(seatIndex, cards[0])) {
           this.emitError(seatIndex, '还贡的牌不在你的手牌中');
+          return;
+      }
+      
+      // ★ 修复：红桃级牌（逢人配）不能还贡（与进贡的 isWildLevelCard 检测对齐）
+      if (this.isWildLevelCard(cards[0])) {
+          this.emitError(seatIndex, '红桃级牌(逢人配)不能还贡');
           return;
       }
       
