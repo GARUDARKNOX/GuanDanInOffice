@@ -1543,11 +1543,17 @@ export class Bot {
       const canFinishWithBomb = afterSmallest.length === 0 ||
         (afterSmallest.length > 0 && !!getHandType(afterSmallest, this.level)) ||
         this.areAllCardsBombs();
+      // ★ 队友已头游（剩0张）→ 我方已保底，目标是抢二游/避免末游：
+      //   此时要"不惜代价"主动用炸弹清牌抢名次，绝不能把炸弹憋在手里、
+      //   领小对子/散牌让对手有机可乘（本局 BOT2 事故：抓 9999/10101010/KKKK
+      //   三炸，队友头游后却领对 QQ 被级牌对压走，炸弹一个没出、末游）。
+      const partnerOut = !this.isThreePlayer && this.handsInfo[this.partnerIdx()] === 0;
       const shouldLeadBomb =
         enemiesLow ||
+        (partnerOut && myBombs > 0) ||
         (canFinishWithBomb && myCards <= 12);
-      // 开局牌太多时仍然留炸
-      const notTooEarly = myCards <= 15 || enemiesLow;
+      // 开局牌太多时仍然留炸（队友已头游抢二游 / 对手濒走 除外）
+      const notTooEarly = myCards <= 15 || enemiesLow || partnerOut;
       if (shouldLeadBomb && notTooEarly) {
         // 主动领出时用最小的炸（大炸留底做绝对控制）
         const sorted = [...bombGroups].sort((a, b) => bombStrength(a, this.level) - bombStrength(b, this.level));
@@ -2673,17 +2679,21 @@ export class Bot {
     //   成本 = 4~5 张核心资源；收益 = 只换回对手 1~2 张的出牌权。自己牌多时炸完照样
     //   走不完、出牌权下一轮就被抢走——炸弹白烧（本局 BOT2 事故：17 张时用 88888 炸
     //   单 A、又用 AAAAA 炸单 2，两个 5 炸烧光，头游拱手让给 Bot1）。
-    //   仅两个例外允许炸单/对：
+    //   仅三个例外允许炸单/对：
     //     a) 下家敌人只剩 1 张——必须炸断、再用非单张挡住，否则下家直接走完
     //     b) 自己 ≤5 张——炸完即冲刺收尾（走下方 myCards<=5 分支）
-    //   其余情况（对手在跑、对手出大单/级牌、对手牌路崩坏、对手濒走）一律不炸单/对。
+    //     c) 出牌者濒走(≤5张)——他用一张单/对清牌、下一手可能直接走完，必须炸断
     //   ——对手出成型大牌(顺子/钢板/三带二)时 isCheapTarget=false，仍走下方各分支正常炸断。
     const nextSeatGuard = (this.seatIndex + 1) % 4;
     const nextEnemyGuard = this.isAlly(nextSeatGuard) ? 999 : this.handsInfo[nextSeatGuard];
     const isCheapTarget = !isBomb && (target.type === HandType.Single || target.type === HandType.Pair);
     if (isCheapTarget) {
       const mustBreakForNextOne = nextEnemyGuard === 1;
-      if (!mustBreakForNextOne && myCards > 5) {
+      // ★ 出牌者濒走(≤5张)也必须炸断，不能因"廉价目标"放过：
+      //   本局 BOT2 事故——Bot1 剩5张出级牌对，BOT2 握 9999/10101010/KKKK 三炸
+      //   却因"对子=廉价目标"直接不炸，Bot1 下一手 5 炸走完二游。
+      const leaderNearFinish = !this.isAlly(lastPlayerIndex) && enemyCards > 0 && enemyCards <= 5;
+      if (!mustBreakForNextOne && !leaderNearFinish && myCards > 5) {
         return null;
       }
     }
