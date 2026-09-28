@@ -149,36 +149,28 @@ export const GameTable: React.FC<Props> = ({
               const suitCards = myHandOriginal.filter(c => c.suit === s && !c.isWild && c.rank <= Rank.Ace);
               // Sort by Rank Ascending
               suitCards.sort((a, b) => a.rank - b.rank);
-              
+
               // Find sequences
+              // ★ 修复：同一 rank 的重复牌(两张3)必须跳过而不是留在序列里——
+              //   否则 [A,2,3,3,4] 会被当成"5 张连续"高亮成同花顺，
+              //   实际这 5 张里只有 A,2,3,4 四个不同点数（界面显示像 A2345）。
               let seq: CardType[] = [];
+              const flushSeq = () => { if (seq.length >= 5) seq.forEach(c => sfSet.add(c.id)); };
               for (let i = 0; i < suitCards.length; i++) {
-                  if (seq.length === 0) {
-                      seq.push(suitCards[i]);
-                  } else {
-                      const last = seq[seq.length - 1];
-                      if (suitCards[i].rank === last.rank + 1) {
-                          seq.push(suitCards[i]);
-                      } else if (suitCards[i].rank === last.rank) {
-                          // Duplicate rank? Skip or fork? 
-                          // For visualization, just highlight one path or all?
-                          // Simple: Reset sequence if gap
-                          // Actually duplicates break strict sequence check if we just use prev.
-                          // But if it is duplicate rank, we can still form SF if we have 5 unique ranks.
-                          // Simplification: Check strict consecutive ranks.
-                          // If gap > 1, reset.
-                      } else {
-                          // Gap
-                          if (seq.length >= 5) {
-                              seq.forEach(c => sfSet.add(c.id));
-                          }
-                          seq = [suitCards[i]];
-                      }
-                  }
+                  const cur = suitCards[i];
+                  if (seq.length === 0) { seq.push(cur); continue; }
+                  const last = seq[seq.length - 1];
+                  if (cur.rank === last.rank) continue;            // 重复点数：跳过，不进序列
+                  if (cur.rank === last.rank + 1) { seq.push(cur); continue; }
+                  flushSeq();                                      // 断档：结算上一段
+                  seq = [cur];
               }
-              if (seq.length >= 5) {
-                  seq.forEach(c => sfSet.add(c.id));
-              }
+              flushSeq();
+
+              // A-2-3-4-5 轮子（最小同花顺）：单独特判，上面的升序连扫扫不到
+              const has = (r: number) => suitCards.find(c => c.rank === r);
+              const wheel = [14, 2, 3, 4, 5].map(has);
+              if (wheel.every(c => c)) wheel.forEach(c => sfSet.add(c!.id));
           });
           setStraightFlushIds(sfSet);
 
@@ -192,7 +184,17 @@ export const GameTable: React.FC<Props> = ({
       setViewMode(prev => prev === 'normal' ? 'stacked' : 'normal');
   };
 
+  const isTributePayPhase = gameState?.phase === 'Tribute';
+
   const toggleSelect = (id: string) => {
+    // ★ 规则：进贡阶段禁止选中红桃级牌(逢人配)——红桃级牌不能进贡
+    if (isTributePayPhase) {
+      const card = sortedHand.find(c => c.id === id);
+      if (card?.isWild) {
+        alert('红桃级牌(逢人配)不能进贡，请选择其他牌');
+        return;
+      }
+    }
     setSelectedCardIds(prev => 
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
@@ -296,6 +298,11 @@ export const GameTable: React.FC<Props> = ({
           alert("请选择一张牌");
           return;
       }
+      // ★ 规则：红桃级牌(逢人配)不能进贡（服务端也会再校验一次）
+      if (gameState.phase === 'Tribute' && cards[0].isWild) {
+          alert('红桃级牌(逢人配)不能进贡，请选择其他牌');
+          return;
+      }
       if (gameState.phase === 'Tribute' && onTribute) onTribute(cards);
       if (gameState.phase === 'ReturnTribute' && onReturnTribute) onReturnTribute(cards);
       setSelectedCardIds([]);
@@ -361,14 +368,14 @@ export const GameTable: React.FC<Props> = ({
     const playerName = roomState.players.find(p => p && p.seatIndex === playerIndex)?.name || `Seat ${playerIndex}`;
     
     return (
-      <div className="bg-green-700/50 p-4 rounded-lg flex flex-col items-center max-w-[90vw]">
-        <div className="text-white mb-2 font-bold">{playerName} 出牌:</div>
-        <div className="flex flex-wrap justify-center gap-1 min-w-[200px]">
+      <div className="glass px-5 py-4 flex flex-col items-center max-w-[90vw]">
+        <div className="text-slate-300 mb-2.5 text-sm font-semibold tracking-wide">{playerName} 出牌</div>
+        <div className="flex flex-wrap justify-center gap-1.5 min-w-[200px]">
            {hand.cards.map((c: CardType) => (
              <Card key={c.id} card={c} />
            ))}
         </div>
-        <div className="text-yellow-300 font-bold mt-2">{getHandDescription(hand, gameState.level)}</div>
+        <div className="mt-2.5 chip-info !text-xs">{getHandDescription(hand, gameState.level)}</div>
       </div>
     );
   };
@@ -379,7 +386,7 @@ export const GameTable: React.FC<Props> = ({
       return (
           <div className="flex gap-0.5 mt-1">
               {cards.slice(0, 6).map((card, i) => (
-                  <div key={i} className="w-6 h-8 bg-white rounded text-xs flex items-center justify-center font-bold border border-gray-300"
+                  <div key={i} className="w-6 h-8 bg-gradient-to-b from-white to-slate-100 rounded-md text-xs flex items-center justify-center font-bold border border-slate-300/80 shadow-card"
                        style={{ color: (card.suit === Suit.Hearts || card.suit === Suit.Diamonds) ? 'red' : 'black' }}>
                       {card.rank === Rank.SmallJoker ? '🃏' : card.rank === Rank.BigJoker ? '🃟' : 
                        ['', '', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'][card.rank] || '?'}
@@ -407,8 +414,12 @@ export const GameTable: React.FC<Props> = ({
     const winnerPos = getWinnerPosition();
     
     return (
-      <div 
-          className={`absolute ${pos} flex flex-col items-center p-4 rounded-lg transition-colors ${data.isTeammate ? 'bg-blue-900/40 border-2 border-blue-400' : 'bg-black/20'} ${!gameState && !data.player ? 'cursor-pointer hover:bg-white/10' : ''}`}
+      <div
+          className={`absolute ${pos} flex flex-col items-center p-3 sm:p-4 rounded-2xl transition-all duration-300
+            ${data.isTeammate
+              ? 'glass border-sky-400/40 shadow-[0_0_24px_-8px_rgba(56,189,248,0.5)]'
+              : 'glass-soft'}
+            ${!gameState && !data.player ? 'cursor-pointer hover:bg-white/[0.1] hover:scale-[1.02]' : ''}`}
           onClick={() => !gameState && !data.player && onSwitchSeat(data.seat)}
       >
          {/* Chat Bubble */}
@@ -422,12 +433,15 @@ export const GameTable: React.FC<Props> = ({
            </div>
          )}
          
-         <div className={`w-12 h-12 bg-gray-300 rounded-full flex items-center justify-center mb-2 relative ${gameState && gameState.currentTurn === data.seat ? 'turn-glow' : ''}`}>
+         <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center mb-2 relative
+             text-base sm:text-lg font-bold text-white
+             bg-gradient-to-br from-slate-600 to-slate-800 ring-1 ring-white/15 shadow-card
+             ${gameState && gameState.currentTurn === data.seat ? 'turn-glow ring-sky-300/60' : ''}`}>
            {data.player ? data.player.name[0].toUpperCase() : (gameState ? '?' : '+')}
-           {data.isTeammate && <div className="absolute -top-1 -right-1 bg-blue-500 text-xs text-white px-1 rounded">友</div>}
-           {data.isOpponent && <div className="absolute -top-1 -right-1 bg-red-500 text-xs text-white px-1 rounded">敌</div>}
+           {data.isTeammate && <div className="absolute -top-1 -right-1 chip-info !px-1.5 !py-0 !text-[10px]">友</div>}
+           {data.isOpponent && <div className="absolute -top-1 -right-1 chip-danger !px-1.5 !py-0 !text-[10px]">敌</div>}
            {data.player && data.player.seatIndex === 0 && (
-               <div className="absolute -bottom-1 -right-1 text-xs bg-yellow-500 text-black px-1 rounded font-bold border border-white">
+               <div className="absolute -bottom-1 -right-1 text-[10px] bg-amber-400 text-slate-900 px-1.5 rounded-full font-bold ring-2 ring-slate-900">
                    Host
                </div>
            )}
@@ -438,13 +452,17 @@ export const GameTable: React.FC<Props> = ({
                </div>
            )}
          </div>
-         <div className="text-white font-bold flex items-center gap-2">
-             {data.player ? data.player.name : (gameState ? 'Waiting...' : '点击入座')}
+         <div className="text-slate-100 font-semibold text-sm flex items-center gap-2">
+             {data.player ? data.player.name : (gameState ? '等待中…' : '点击入座')}
              {data.player && (data.player as any).isDisconnected && (
-                 <span className="text-red-500 text-xs font-bold bg-white px-1 rounded animate-pulse">OFF</span>
+                 <span className="chip-danger animate-pulse">OFF</span>
              )}
          </div>
-         {gameState && <div className="text-yellow-400">Cards: {data.handCount}</div>}
+         {gameState && (
+           <div className="mt-1 chip bg-white/[0.06] text-amber-200 tabular-nums">
+             {data.handCount} 张
+           </div>
+         )}
         {/* 诊断用：显示队友BOT的完整手牌（仅队友位置） */}
         {showAllyHand && data.isTeammate && gameState && gameState.allyHand && (
           <div className="mt-2 flex flex-wrap justify-center gap-0.5 w-[500px]">
@@ -459,10 +477,10 @@ export const GameTable: React.FC<Props> = ({
          {gameState && action && (
              <div className="mt-2 flex flex-col items-center">
                  {action.type === 'pass' ? (
-                     <div className="text-gray-400 font-bold text-sm bg-gray-700/50 px-3 py-1 rounded">过</div>
+                     <div className="chip bg-white/[0.06] text-slate-400 !px-3 !py-1">过</div>
                  ) : (
                      <div className="flex flex-col items-center">
-                         <div className="text-green-400 text-xs mb-1">{action.hand?.type || '出牌'}</div>
+                         <div className="text-emerald-300 text-[11px] mb-1">{action.hand?.type || '出牌'}</div>
                          {renderActionCards(action.cards)}
                      </div>
                  )}
@@ -470,7 +488,10 @@ export const GameTable: React.FC<Props> = ({
          )}
          
          {gameState && gameState.currentTurn === data.seat && !action && (
-             <div className="animate-bounce text-red-500 font-bold mt-2">Thinking...</div>
+             <div className="mt-2 flex items-center gap-1.5 text-sky-300 text-xs font-semibold">
+               <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce"></span>
+               思考中…
+             </div>
          )}
       </div>
     );
@@ -515,20 +536,24 @@ export const GameTable: React.FC<Props> = ({
   };
 
   return (
-    <div className="relative w-full h-screen overflow-hidden flex items-center justify-center font-mono">
-      <div className="absolute inset-20 border-2 border-[#333333] rounded-xl opacity-50 pointer-events-none"></div>
+    <div className="relative w-full h-screen overflow-hidden flex items-center justify-center font-sans">
+      <div className="absolute inset-6 sm:inset-16 rounded-[2rem] border border-white/[0.07] bg-white/[0.02] backdrop-blur-[2px] pointer-events-none"></div>
 
       <PlayerArea data={top} pos="top-4 left-1/2 -translate-x-1/2" />
       {(roomState.maxPlayers || 4) === 4 && <PlayerArea data={left} pos="left-8 top-1/2 -translate-y-1/2" />}
       <PlayerArea data={right} pos="right-8 top-1/2 -translate-y-1/2" />
       
       {/* Chat Box */}
-      <div className="absolute top-4 right-4 w-72 h-56 bg-[#3c3528] border border-[#333333] rounded flex flex-col pointer-events-auto z-10 shadow-lg">
-          <div className="flex-1 overflow-y-auto p-2 text-sm text-[#d4d4d4] scrollbar-thin">
+      <div className="absolute top-4 right-4 w-56 sm:w-72 h-44 sm:h-56 glass flex flex-col pointer-events-auto z-10 overflow-hidden">
+          <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+            <span className="section-label">聊天</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 text-sm text-slate-300">
               {chatMessages.map((msg, i) => (
-                  <div key={i} className="mb-1">
-                      <span className="text-[#858585] text-xs">[{msg.time}] </span>
-                      <span className="font-bold text-[#d2b59b]">{msg.sender}: </span>
+                  <div key={i} className="mb-1.5 leading-snug">
+                      <span className="text-slate-500 text-[11px]">[{msg.time}] </span>
+                      <span className="font-semibold text-sky-300">{msg.sender}: </span>
                       <span className="break-words">{msg.text}</span>
                   </div>
               ))}
@@ -537,7 +562,7 @@ export const GameTable: React.FC<Props> = ({
           
           {/* Emoji Picker */}
           {showEmojiPicker && (
-              <div className="p-2 border-t border-[#333333] bg-[#2a2419] grid grid-cols-10 gap-1">
+              <div className="p-2 border-t border-white/10 bg-white/[0.03] grid grid-cols-10 gap-1">
                   {quickEmojis.map((emoji, i) => (
                       <button 
                           key={i} 
@@ -546,7 +571,7 @@ export const GameTable: React.FC<Props> = ({
                               setChatInput(prev => prev + emoji);
                               setShowEmojiPicker(false);
                           }}
-                          className="text-lg hover:bg-[#4a4132] rounded p-1 transition-colors"
+                          className="text-lg hover:bg-white/10 rounded-lg p-1 transition-colors"
                       >
                           {emoji}
                       </button>
@@ -554,29 +579,32 @@ export const GameTable: React.FC<Props> = ({
               </div>
           )}
           
-          <form onSubmit={handleChatSubmit} className="p-2 border-t border-[#333333] flex items-center gap-1">
+          <form onSubmit={handleChatSubmit} className="p-2.5 border-t border-white/10 flex items-center gap-1.5">
               <button 
                   type="button" 
                   onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                  className="text-lg hover:bg-[#4a4132] rounded p-1"
+                  className="text-lg hover:bg-white/10 rounded-lg p-1 transition-colors"
                   title="表情"
               >
                   😊
               </button>
               <input 
-                  className="flex-1 bg-[#4a4132] border-none text-white text-sm focus:outline-none rounded px-2 py-1" 
+                  className="field !py-1.5 text-sm" 
                   placeholder="输入消息..." 
                   value={chatInput}
                   onChange={e => setChatInput(e.target.value)}
               />
-              <button type="submit" className="text-[#0e639c] font-bold text-sm hover:text-[#1177bb]">发送</button>
+              <button type="submit" className="btn-primary !px-3 !py-1.5 text-xs">发送</button>
           </form>
       </div>
 
       {gameState && (
           <div className="absolute top-4 left-4 flex flex-col gap-2 items-start z-50">
-              <div className="text-[#d4d4d4] font-bold text-xl bg-[#3c3528] border border-[#333333] px-4 py-2 rounded shadow-lg">
-                  <span className="text-[#d2b59b]">const</span> <span className="text-[#9cdcfe]">Level</span> = <span className="text-[#b5cea8]">{gameState.level}</span>;
+              <div className="glass px-4 py-2 flex items-center gap-2">
+                  <span className="section-label">等级</span>
+                  <span className="text-2xl font-extrabold tabular-nums bg-gradient-to-r from-amber-200 to-yellow-400 bg-clip-text text-transparent">
+                    {gameState.level}
+                  </span>
               </div>
               
               {/* Host Force End Button */}
@@ -587,7 +615,7 @@ export const GameTable: React.FC<Props> = ({
                             onForceEndGame?.();
                         }
                     }}
-                    className="bg-red-900/80 hover:bg-red-600 text-white text-xs px-3 py-1 rounded border border-red-500/50 shadow-lg backdrop-blur-sm transition-all flex items-center gap-1"
+                    className="btn bg-rose-500/15 text-rose-200 ring-1 ring-inset ring-rose-400/40 hover:bg-rose-500/25 !px-3 !py-1 !text-xs"
                 >
                     <span>⛔</span> 强制结束
                 </button>
@@ -599,43 +627,45 @@ export const GameTable: React.FC<Props> = ({
         {renderLastHand()}
         {!gameState && (
             <div className="flex flex-col gap-4 mt-8 items-center">
-               <div className="text-white text-xl">Waiting for players...</div>
-               
+               <div className="text-slate-300 text-lg sm:text-xl font-semibold tracking-wide">等待玩家入座…</div>
+
                {/* Game Mode Toggle - Only host can change */}
-               <div className="flex items-center gap-4 bg-[#3c3528] px-4 py-2 rounded-lg border border-[#333333]">
-                   <span className="text-[#9cdcfe] font-bold">模式:</span>
-                   <button 
+               <div className="glass px-4 py-3 flex items-center gap-3">
+                   <span className="section-label">模式</span>
+                   <button
                        onClick={() => onSetGameMode?.(GameMode.Normal)}
                        disabled={mySeat !== 0}
-                       className={`px-4 py-1 rounded font-bold transition-all ${
-                           roomState.gameMode !== GameMode.Skill 
-                               ? 'bg-blue-600 text-white' 
-                               : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                       } ${mySeat !== 0 ? 'cursor-not-allowed opacity-70' : ''}`}
+                       className={
+                           roomState.gameMode !== GameMode.Skill
+                               ? 'btn-primary !px-4 !py-1.5'
+                               : `btn-ghost !px-4 !py-1.5 ${mySeat !== 0 ? 'cursor-not-allowed opacity-60' : ''}`
+                       }
                    >
                        普通
                    </button>
-                   <button 
+                   <button
                        onClick={() => onSetGameMode?.(GameMode.Skill)}
                        disabled={mySeat !== 0}
-                       className={`px-4 py-1 rounded font-bold transition-all ${
-                           roomState.gameMode === GameMode.Skill 
-                               ? 'bg-purple-600 text-white' 
-                               : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                       } ${mySeat !== 0 ? 'cursor-not-allowed opacity-70' : ''}`}
+                       className={
+                           roomState.gameMode === GameMode.Skill
+                               ? 'btn-violet !px-4 !py-1.5'
+                               : `btn-ghost !px-4 !py-1.5 ${mySeat !== 0 ? 'cursor-not-allowed opacity-60' : ''}`
+                       }
                    >
                        技能
                    </button>
                </div>
                {roomState.gameMode === GameMode.Skill && (
-                   <div className="text-purple-400 text-sm">技能模式: 每人开局获得2张技能卡</div>
+                   <div className="text-violet-300 text-xs sm:text-sm">技能模式：每人开局获得 2 张技能卡</div>
                )}
-               
+
                {me.player && !me.player.isReady && (
-                   <button onClick={onReady} className="bg-blue-500 text-white px-6 py-2 rounded font-bold">准备</button>
+                   <button onClick={onReady} className="btn-primary !px-8 !py-2.5">准备</button>
                )}
                {me.player && me.player.seatIndex === 0 && (
-                   <button onClick={onStart} className="bg-yellow-500 text-black px-6 py-2 rounded font-bold">开始游戏 (Host)</button>
+                   <button onClick={onStart} className="btn !px-8 !py-2.5 bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 shadow-lg shadow-amber-500/25">
+                     开始游戏 (Host)
+                   </button>
                )}
             </div>
         )}
@@ -644,14 +674,14 @@ export const GameTable: React.FC<Props> = ({
       <div className="absolute bottom-0 w-full flex flex-col items-center pb-4 z-20 pointer-events-none">
         {/* Debug Info - remove in production */}
         {gameState && (
-            <div className="text-xs text-gray-500 mb-1 pointer-events-auto">
+            <div className="text-[10px] text-slate-500 mb-1 pointer-events-auto font-mono">
                 [Debug] mySeat={mySeat}, currentTurn={gameState.currentTurn}, phase={gameState.phase}, isMyTurn={String(gameState.currentTurn === mySeat)}, myCards={Array.isArray(gameState.hands[mySeat]) ? (gameState.hands[mySeat] as any[]).length : '?'}
             </div>
         )}
         {gameState && (
             <button
                 onClick={() => setShowAllyHand(v => !v)}
-                className={`pointer-events-auto mb-1 px-3 py-1 rounded text-xs font-bold ${showAllyHand ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+                className={`pointer-events-auto mb-1 chip ${showAllyHand ? 'chip-success' : 'bg-white/[0.06] text-slate-400'}`}
             >
                 {showAllyHand ? '隐藏队友手牌' : '显示队友手牌(诊断)'}
             </button>
@@ -660,7 +690,7 @@ export const GameTable: React.FC<Props> = ({
         {/* Skill Cards Area */}
         {gameState && gameState.gameMode === GameMode.Skill && gameState.mySkillCards && gameState.mySkillCards.length > 0 && (
             <div className="mb-4 pointer-events-auto flex flex-col items-center">
-                <div className="text-purple-400 text-sm mb-2 font-bold">我的技能卡</div>
+                <div className="section-label mb-2 text-violet-300/90">我的技能卡</div>
                 <div className="flex gap-3">
                     {gameState.mySkillCards.map((skill) => (
                         <SkillCardButton 
@@ -680,23 +710,23 @@ export const GameTable: React.FC<Props> = ({
         {/* Controls Container */}
         <div className="mb-8 pointer-events-auto">
             {gameState && gameState.currentTurn === mySeat && gameState.phase === 'Playing' && (
-                <div className="flex gap-4">
-                    <button 
+                <div className="flex items-center gap-3">
+                    <button
                       onClick={handleAutoArrange}
-                      className={`px-4 py-2 rounded-full font-bold shadow-lg mr-4 ${showArrange ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-teal-500 hover:bg-teal-600 text-white'}`}
+                      className={showArrange ? 'btn-success !px-5 !py-2.5' : 'btn-ghost !px-5 !py-2.5'}
                     >
                       {showArrange ? '隐藏组牌' : '自动组牌'}
                     </button>
-                    <button 
-                      onClick={handlePlay} 
+                    <button
+                      onClick={handlePlay}
                       disabled={selectedCardIds.length === 0}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded-full font-bold shadow-lg disabled:opacity-50"
+                      className="btn-primary !px-10 !py-2.5"
                     >
                       出牌
                     </button>
-                    <button 
+                    <button
                       onClick={onPass}
-                      className="bg-red-600 hover:bg-red-700 text-white px-8 py-2 rounded-full font-bold shadow-lg"
+                      className="btn-danger !px-10 !py-2.5"
                     >
                       过
                     </button>
@@ -704,13 +734,13 @@ export const GameTable: React.FC<Props> = ({
             )}
             
             {amIPaying && (
-                <div className="flex gap-4">
-                   <div className="text-yellow-400 font-bold text-xl animate-pulse">
-                       {gameState!.phase === 'Tribute' ? '请进贡最大牌' : '请还贡一张牌'}
+                <div className="glass-strong px-5 py-3 flex items-center gap-4">
+                   <div className="text-amber-300 font-semibold text-base sm:text-lg">
+                       {gameState!.phase === 'Tribute' ? '请进贡最大牌（红桃级牌不可进贡）' : '请还贡一张牌'}
                    </div>
-                   <button 
-                      onClick={handleTributeAction} 
-                      className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-2 rounded-full font-bold shadow-lg"
+                   <button
+                      onClick={handleTributeAction}
+                      className="btn-violet !px-8 !py-2"
                    >
                       确认
                    </button>
@@ -737,7 +767,7 @@ export const GameTable: React.FC<Props> = ({
                           onClick={() => {
                             setSelectedCardIds(g.cards.map(c => c.id));
                           }}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 cursor-pointer hover:scale-105 transition-transform ${g.isBomb ? 'bg-red-600/80 text-white' : 'bg-white/15 text-white hover:bg-white/25'}`}
+                          className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 cursor-pointer hover:scale-[1.04] transition-transform ${g.isBomb ? 'bg-rose-500/25 text-rose-100 ring-1 ring-inset ring-rose-400/40' : 'glass-soft text-white hover:bg-white/[0.12]'}`}
                           title="点击选中这组牌"
                         >
                             <span className={`inline-block w-2.5 h-2.5 rounded-full ${dotColor}`}></span>
@@ -809,14 +839,19 @@ export const GameTable: React.FC<Props> = ({
               </div>
             </div>
           )}
-          <div className="text-white font-bold mt-2">{me.player?.name} (Me)</div>
+          <div className="text-slate-200 font-semibold text-sm mt-2 flex items-center gap-2">
+            {me.player?.name}
+            <span className="chip-info !text-[10px]">Me</span>
+          </div>
         </div>
       </div>
       
       {gameState && gameState.phase === 'Score' && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-white z-50">
-              <h1 className="text-6xl font-bold mb-8 text-yellow-400">本局结束</h1>
-              <div className="text-2xl mb-4">
+          <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-md flex flex-col items-center justify-center text-white z-50 px-6 text-center">
+              <h1 className="text-4xl sm:text-6xl font-extrabold mb-6">
+                <span className="bg-gradient-to-r from-amber-200 to-yellow-400 bg-clip-text text-transparent">本局结束</span>
+              </h1>
+              <div className="text-base sm:text-xl mb-4 text-slate-200">
                   获胜顺序: {gameState.winners.map(w => {
                       const p = roomState.players.find(pl => pl && pl.seatIndex === w);
                       return p ? p.name : `Seat ${w}`;
@@ -838,19 +873,19 @@ export const GameTable: React.FC<Props> = ({
       
       {/* Hand Type Selection Modal (for wild cards) */}
       {showHandSelector && possibleHands.length > 0 && gameState && (
-          <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
-              <div className="bg-[#3c3528] border border-[#333333] rounded-lg p-6 max-w-md shadow-2xl">
-                  <h2 className="text-2xl font-bold text-[#9cdcfe] mb-4">选择牌型</h2>
-                  <p className="text-gray-400 mb-4">您的牌包含红心{gameState.level}（万能牌），可以组成以下牌型：</p>
-                  <div className="flex flex-col gap-3">
+          <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+              <div className="glass-strong p-6 max-w-md w-full">
+                  <h2 className="text-xl sm:text-2xl font-bold text-sky-300 mb-2">选择牌型</h2>
+                  <p className="text-slate-400 text-sm mb-5">您的牌包含红心{gameState.level}（万能牌），可以组成以下牌型：</p>
+                  <div className="flex flex-col gap-2.5">
                       {possibleHands.map((hand, idx) => (
                           <button
                               key={idx}
                               onClick={() => handleHandTypeSelect(hand)}
-                              className="bg-[#4a4132] hover:bg-[#4c4c4c] text-white px-6 py-3 rounded-lg font-bold transition-colors text-left"
+                              className="glass-soft hover:bg-white/[0.12] hover:border-sky-400/40 text-white px-5 py-3 text-left transition-all duration-200"
                           >
-                              <div className="text-lg">{getHandDescription(hand, gameState.level)}</div>
-                              <div className="text-sm text-gray-400 mt-1">
+                              <div className="text-base font-semibold">{getHandDescription(hand, gameState.level)}</div>
+                              <div className="text-xs text-slate-400 mt-1">
                                   {hand.type} - 值: {hand.value}
                                   {hand.bombCount && ` (${hand.bombCount}张炸弹)`}
                               </div>
@@ -862,7 +897,7 @@ export const GameTable: React.FC<Props> = ({
                           setShowHandSelector(false);
                           setPossibleHands([]);
                       }}
-                      className="mt-4 w-full bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg"
+                      className="btn-ghost mt-4 w-full"
                   >
                       取消
                   </button>
@@ -895,7 +930,7 @@ export const GameTable: React.FC<Props> = ({
       {gameState && (
           <button
               onClick={() => setShowHistory(true)}
-              className="fixed top-4 right-4 z-40 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-lg font-medium transition flex items-center gap-2"
+              className="fixed right-4 top-[12rem] sm:top-[15rem] z-40 btn-ghost !px-3 !py-1.5 !text-xs"
               title="查看游戏历史记录"
           >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -903,7 +938,7 @@ export const GameTable: React.FC<Props> = ({
               </svg>
               历史记录
               {gameState.history && gameState.history.length > 0 && (
-                  <span className="bg-red-500 text-xs px-2 py-0.5 rounded-full">
+                  <span className="chip-danger !px-2 !py-0 !text-[10px] tabular-nums">
                       {gameState.history.length}
                   </span>
               )}

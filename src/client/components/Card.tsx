@@ -44,15 +44,18 @@ export const Card: React.FC<Props> = ({ card, selected, onClick, small, isHighli
   const isRed = card.suit === Suit.Hearts || card.suit === Suit.Diamonds || card.rank === Rank.BigJoker;
   const isJoker = card.suit === Suit.Joker;
   
-  const baseClasses = "relative bg-white rounded shadow-md border border-gray-300 flex flex-col justify-between select-none cursor-pointer transition-transform";
-  const sizeClasses = small 
-    ? "w-8 h-12 text-xs p-1" 
-    : "w-16 h-24 text-base p-2 hover:-translate-y-2";
-  const selectClasses = selected ? "ring-2 ring-blue-500 -translate-y-4" : "";
-  const colorClass = isRed ? "text-red-600" : "text-black";
+  // 现代卡牌外观：更大圆角、柔和渐变、细边框与层次阴影
+  const baseClasses = "relative flex flex-col justify-between select-none cursor-pointer " +
+    "bg-gradient-to-b from-white to-slate-100 border border-slate-300/80 " +
+    "shadow-card transition-all duration-200 hover:shadow-lg";
+  const sizeClasses = small
+    ? "w-8 h-12 text-xs p-1 rounded-md"
+    : "w-16 h-24 text-base p-2 rounded-xl hover:-translate-y-2";
+  const selectClasses = selected ? "ring-2 ring-sky-400 ring-offset-2 ring-offset-slate-900 -translate-y-4" : "";
+  const colorClass = isRed ? "text-rose-600" : "text-slate-900";
   const enterClass = animateEnter ? "card-enter" : "";
-  const highlightClasses = isHighlighted 
-    ? "ring-4 ring-green-400 shadow-[0_0_15px_rgba(74,222,128,0.7)] animate-pulse" 
+  const highlightClasses = isHighlighted
+    ? "ring-2 ring-amber-300 shadow-[0_0_18px_rgba(252,211,77,0.65)]"
     : "";
 
   if (isJoker) {
@@ -73,14 +76,14 @@ export const Card: React.FC<Props> = ({ card, selected, onClick, small, isHighli
       className={`${baseClasses} ${sizeClasses} ${selectClasses} ${enterClass} ${highlightClasses} ${colorClass}`}
       onClick={onClick}
     >
-      <div className="font-bold text-left leading-none">{getRankLabel(card.rank)}</div>
-      <div className="absolute inset-0 flex items-center justify-center text-2xl opacity-20 pointer-events-none">
+      <div className="font-extrabold text-left leading-none tracking-tight">{getRankLabel(card.rank)}</div>
+      <div className="absolute inset-0 flex items-center justify-center text-3xl opacity-[0.14] pointer-events-none">
           {getSuitSymbol(card.suit)}
       </div>
-      <div className="text-right leading-none self-end">{getSuitSymbol(card.suit)}</div>
-      
+      <div className="text-right leading-none self-end text-sm">{getSuitSymbol(card.suit)}</div>
+
       {card.isLevelCard && (
-          <div className="absolute top-0 right-0 w-2 h-2 bg-yellow-400 rounded-full"></div>
+          <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-400 rounded-full ring-2 ring-white/70"></div>
       )}
     </div>
   );

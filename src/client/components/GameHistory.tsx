@@ -64,42 +64,38 @@ export const GameHistory: React.FC<GameHistoryProps> = ({ history, currentRound,
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-gray-900 rounded-lg shadow-2xl w-11/12 max-w-4xl h-5/6 flex flex-col border-2 border-gray-700">
+    <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-6">
+      <div className="glass-strong w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <div>
-            <h2 className="text-2xl font-bold text-white">游戏历史记录</h2>
-            <p className="text-sm text-gray-400">第 {currentRound} 局 · 共 {filteredHistory.length} 条记录</p>
+            <h2 className="text-lg sm:text-2xl font-bold text-white">游戏历史记录</h2>
+            <p className="text-xs sm:text-sm text-slate-400 mt-0.5">第 {currentRound} 局 · 共 {filteredHistory.length} 条记录</p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white text-3xl leading-none px-3 py-1"
+            className="text-slate-400 hover:text-white text-2xl leading-none w-9 h-9 rounded-full hover:bg-white/10 transition-colors"
           >
             ×
           </button>
         </div>
 
         {/* Filters */}
-        <div className="p-4 border-b border-gray-700 space-y-3">
+        <div className="p-4 border-b border-white/10 space-y-3">
           {/* Search */}
           <input
             type="text"
             placeholder="搜索玩家名或事件..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full px-4 py-2 bg-gray-800 text-white rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none"
+            className="field"
           />
 
           {/* Event type filter */}
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setFilter('all')}
-              className={`px-3 py-1 rounded-full text-sm font-medium transition ${
-                filter === 'all'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-              }`}
+              className={filter === 'all' ? 'chip-info !px-3 !py-1 !text-xs' : 'chip bg-white/[0.06] text-slate-400 hover:bg-white/[0.12] !px-3 !py-1 !text-xs'}
             >
               全部
             </button>
@@ -109,10 +105,10 @@ export const GameHistory: React.FC<GameHistoryProps> = ({ history, currentRound,
                 <button
                   key={type}
                   onClick={() => setFilter(type)}
-                  className={`px-3 py-1 rounded-full text-sm font-medium transition ${
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition border ${
                     filter === type
-                      ? `${info.bgColor} ${info.color} border border-current`
-                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      ? `${info.bgColor} ${info.color} border-current`
+                      : 'bg-white/[0.05] border-white/10 text-slate-400 hover:bg-white/[0.12]'
                   }`}
                 >
                   {info.name}
@@ -128,7 +124,7 @@ export const GameHistory: React.FC<GameHistoryProps> = ({ history, currentRound,
           onScroll={handleScroll}
         >
           {filteredHistory.length === 0 ? (
-            <div className="text-center text-gray-500 py-8">
+            <div className="text-center text-slate-500 py-8 text-sm">
               {searchTerm || filter !== 'all' ? '没有匹配的记录' : '暂无历史记录'}
             </div>
           ) : (
@@ -137,7 +133,7 @@ export const GameHistory: React.FC<GameHistoryProps> = ({ history, currentRound,
               return (
                 <div
                   key={entry.id}
-                  className={`${info.bgColor} rounded-lg p-3 border border-gray-700/50 hover:border-gray-600 transition`}
+                  className={`${info.bgColor} rounded-xl p-3 border border-white/10 hover:border-white/25 transition`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
@@ -146,15 +142,15 @@ export const GameHistory: React.FC<GameHistoryProps> = ({ history, currentRound,
                           {info.name}
                         </span>
                         {entry.playerName && (
-                          <span className="text-xs text-gray-400">
+                          <span className="text-xs text-slate-400">
                             {entry.playerName}
                           </span>
                         )}
-                        <span className="text-xs text-gray-500">
+                        <span className="text-[11px] text-slate-500 tabular-nums">
                           {formatTime(entry.timestamp)}
                         </span>
                       </div>
-                      <p className="text-white text-sm leading-relaxed">
+                      <p className="text-slate-100 text-sm leading-relaxed">
                         {entry.message}
                       </p>
                     </div>
@@ -167,19 +163,19 @@ export const GameHistory: React.FC<GameHistoryProps> = ({ history, currentRound,
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-700 flex items-center justify-between">
-          <label className="flex items-center gap-2 text-sm text-gray-400">
+        <div className="p-4 border-t border-white/10 flex items-center justify-between">
+          <label className="flex items-center gap-2 text-xs sm:text-sm text-slate-400 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={autoScroll}
               onChange={(e) => setAutoScroll(e.target.checked)}
-              className="rounded"
+              className="rounded bg-slate-900 border-white/20 text-sky-500 focus:ring-sky-400/40"
             />
             自动滚动到最新
           </label>
           <button
             onClick={onClose}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition"
+            className="btn-ghost !px-6 !py-2"
           >
             关闭
           </button>

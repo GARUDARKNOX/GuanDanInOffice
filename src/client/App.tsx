@@ -42,7 +42,7 @@ function App() {
   }, []);
 
   return (
-    <div className="animated-bg min-h-screen text-gray-300 relative overflow-hidden">
+    <div className="animated-bg min-h-screen text-slate-200 relative overflow-hidden">
       {/* 浮动粒子 - 位置固定避免每帧重新生成 */}
       <div className="fixed inset-0 pointer-events-none z-0">
         {particles.map((p, i) => (
@@ -60,8 +60,11 @@ function App() {
       <div className="relative z-10">
       
       {error && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-2 rounded-full shadow-lg z-50 font-bold animate-pulse">
-          {error}
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] animate-fade-in">
+          <div className="glass-strong px-5 py-2.5 rounded-full flex items-center gap-2.5 shadow-glass">
+            <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
+            <span className="text-sm font-semibold text-rose-200">{error}</span>
+          </div>
         </div>
       )}
 

@@ -21,31 +21,31 @@ export const TargetSelectModal: React.FC<Props> = ({ skillType, players, mySeat,
   const skillName = SkillCardNames[skillType];
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-[#252526] border border-[#3c3c3c] rounded-xl p-6 shadow-2xl min-w-[300px]">
-        <h2 className="text-xl font-bold text-white mb-4 text-center">
+    <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+      <div className="glass-strong p-6 w-full max-w-sm">
+        <h2 className="text-lg sm:text-xl font-bold text-white mb-5 text-center">
           选择【{skillName}】的目标
         </h2>
-        
-        <div className="flex flex-col gap-3">
+
+        <div className="flex flex-col gap-2.5">
           {validTargets.length === 0 ? (
-            <p className="text-gray-400 text-center">没有可选择的目标</p>
+            <p className="text-slate-400 text-center text-sm">没有可选择的目标</p>
           ) : (
             validTargets.map(player => (
               <button
                 key={player.seatIndex}
                 onClick={() => onSelect(player.seatIndex)}
                 className={`
-                  px-4 py-3 rounded-lg text-white font-medium transition-all
-                  ${player.seatIndex % 2 === mySeat % 2 
-                    ? 'bg-blue-700 hover:bg-blue-600' 
-                    : 'bg-red-700 hover:bg-red-600'}
+                  px-4 py-3 rounded-xl text-white font-medium transition-all border
                   flex justify-between items-center
+                  ${player.seatIndex % 2 === mySeat % 2
+                    ? 'bg-sky-500/20 border-sky-400/40 hover:bg-sky-500/30'
+                    : 'bg-rose-500/20 border-rose-400/40 hover:bg-rose-500/30'}
                 `}
               >
                 <span>{player.name}</span>
-                <span className="text-sm opacity-75">
-                  {player.seatIndex % 2 === mySeat % 2 ? '队友' : '对手'} 
+                <span className="text-xs opacity-80">
+                  {player.seatIndex % 2 === mySeat % 2 ? '队友' : '对手'}
                   · {player.handCount}张牌
                 </span>
               </button>
@@ -55,7 +55,7 @@ export const TargetSelectModal: React.FC<Props> = ({ skillType, players, mySeat,
 
         <button
           onClick={onCancel}
-          className="mt-4 w-full px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg text-white font-medium transition-all"
+          className="btn-ghost mt-5 w-full"
         >
           取消
         </button>

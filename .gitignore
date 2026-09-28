@@ -8,3 +8,4 @@ text_*.json
 config/
 *.exe
 game-records/
+askpass.sh

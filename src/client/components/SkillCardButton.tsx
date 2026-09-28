@@ -33,12 +33,12 @@ export const SkillCardButton: React.FC<Props> = ({ skill, onClick, disabled }) =
       onClick={onClick}
       disabled={disabled}
       className={`
-        w-16 h-20 rounded-lg bg-gradient-to-br ${colorClass}
-        border-2 flex flex-col items-center justify-center
-        transition-all duration-200 shadow-lg
-        ${disabled 
-          ? 'opacity-50 cursor-not-allowed' 
-          : 'hover:scale-110 hover:shadow-xl cursor-pointer active:scale-95'}
+        w-16 h-20 rounded-2xl bg-gradient-to-br ${colorClass}
+        border flex flex-col items-center justify-center
+        transition-all duration-200 shadow-lg shadow-black/30
+        ${disabled
+          ? 'opacity-40 cursor-not-allowed saturate-50'
+          : 'hover:-translate-y-1 hover:shadow-xl hover:shadow-black/40 cursor-pointer active:scale-95'}
       `}
       title={name}
     >

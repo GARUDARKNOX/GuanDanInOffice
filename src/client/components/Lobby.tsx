@@ -54,73 +54,61 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen text-gray-300 p-4 relative overflow-hidden">
-      {/* AI-generated background image */}
+    <div className="relative flex flex-col items-center justify-center min-h-screen px-4 py-10 overflow-hidden">
+      {/* 背景层：封面图 + 渐变遮罩 + 花色水印 */}
       <div className="absolute inset-0 pointer-events-none">
-        <img src="/lobby-bg.png" alt="" className="w-full h-full object-cover opacity-30" />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#181c1b]/85 via-[#2a2419]/80 to-[#181c1b]/90" />
+        <img src="/lobby-bg.png" alt="" className="w-full h-full object-cover opacity-25" />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/85 via-slate-950/75 to-slate-950/90" />
       </div>
-      {/* Subtle background pattern - card suit watermark */}
-      <div className="absolute inset-0 pointer-events-none select-none overflow-hidden opacity-[0.03]">
-        <div className="absolute top-[10%] left-[5%] text-[20rem] leading-none">♠</div>
-        <div className="absolute top-[50%] right-[8%] text-[16rem] leading-none">♥</div>
-        <div className="absolute bottom-[5%] left-[15%] text-[14rem] leading-none">♣</div>
-        <div className="absolute top-[20%] right-[25%] text-[12rem] leading-none">♦</div>
+      <div className="absolute inset-0 pointer-events-none select-none overflow-hidden opacity-[0.04]">
+        <div className="absolute top-[8%] left-[4%] text-[16rem] sm:text-[22rem] leading-none text-white">♠</div>
+        <div className="absolute top-[48%] right-[6%] text-[12rem] sm:text-[18rem] leading-none text-white">♥</div>
+        <div className="absolute bottom-[4%] left-[12%] text-[10rem] sm:text-[15rem] leading-none text-white">♣</div>
+        <div className="absolute top-[18%] right-[24%] text-[9rem] sm:text-[13rem] leading-none text-white">♦</div>
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 text-center mb-10">
-        <div className="flex items-center justify-center gap-3 mb-3">
+      {/* 头部 */}
+      <header className="relative z-10 text-center mb-8 sm:mb-12">
+        <div className="flex items-center justify-center gap-3 mb-4">
           {SUITS.map((suit, i) => (
             <span
               key={i}
-              className={`text-2xl ${suit === '♥' || suit === '♦' ? 'text-red-500/60' : 'text-gray-500/60'}`}
+              className={`text-xl sm:text-2xl ${suit === '♥' || suit === '♦' ? 'text-rose-400/70' : 'text-slate-400/60'}`}
             >
               {suit}
             </span>
           ))}
         </div>
-        <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-          <span className="text-[#d2b59b]">Guan</span>
-          <span className="text-[#ce9178]">Dan</span>
+        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight">
+          <span className="bg-gradient-to-r from-sky-300 via-indigo-300 to-violet-300 bg-clip-text text-transparent">
+            掼蛋
+          </span>
         </h1>
-        <p className="text-[#6a9955] text-sm mt-2 font-mono">
-          // 局域网掼蛋 · 按 i 进入摸鱼模式
+        <p className="text-slate-400 text-xs sm:text-sm mt-3 tracking-wide">
+          局域网联机 · 支持四人 / 三人玩法
         </p>
-      </div>
+      </header>
 
-      {/* Main card */}
-      <div className="relative z-10 flex flex-col md:flex-row gap-6 items-start">
-        {/* Join Form */}
+      {/* 主体 */}
+      <div className="relative z-10 flex flex-col lg:flex-row gap-5 items-stretch lg:items-start w-full max-w-5xl">
+        {/* 加入表单 */}
         <form
           onSubmit={handleSubmit}
-          className="bg-[#3c3528] p-8 rounded-lg border border-[#333333] flex flex-col gap-5 w-80
-                     shadow-2xl shadow-black/30 transition-shadow duration-300 hover:shadow-black/50"
+          className="glass p-6 sm:p-8 w-full lg:w-[22rem] flex flex-col gap-5 shrink-0"
         >
-          {/* Status bar mimic */}
-          <div className="flex items-center gap-2 pb-3 border-b border-[#333333]">
-            <span className="w-3 h-3 rounded-full bg-[#ff5f56]"></span>
-            <span className="w-3 h-3 rounded-full bg-[#ffbd2e]"></span>
-            <span className="w-3 h-3 rounded-full bg-[#27c93f]"></span>
-            <span className="text-[11px] text-[#808080] ml-2 font-mono">lobby.tsx</span>
-          </div>
-
-          {/* Game Mode Selector */}
           <div>
-            <label className="block text-[11px] font-mono uppercase tracking-wider mb-2 text-[#d2b59b]">
-              游戏模式
-            </label>
-            <div className="flex gap-2">
+            <span className="section-label">玩法</span>
+            <div className="grid grid-cols-2 gap-2.5 mt-2.5">
               <button
                 type="button"
                 onClick={() => setSelectedVariant(GameVariant.FourPlayer)}
-                className={`flex-1 py-2.5 rounded text-sm font-bold transition-all duration-200 ${
+                className={`py-3 rounded-xl text-sm font-semibold transition-all duration-200 border ${
                   selectedVariant === GameVariant.FourPlayer
-                    ? 'bg-[#0e639c] text-white shadow-lg shadow-[#0e639c]/30'
-                    : 'bg-[#2a2419] text-[#808080] border border-[#3c3c3c] hover:border-[#d2b59b]'
+                    ? 'bg-gradient-to-r from-sky-500 to-indigo-500 text-white border-transparent shadow-lg shadow-sky-500/25'
+                    : 'bg-white/[0.04] text-slate-400 border-white/10 hover:border-sky-400/50 hover:text-slate-200'
                 }`}
               >
-                <div className="flex flex-col items-center gap-0.5">
+                <div className="flex flex-col items-center gap-1">
                   <span className="text-lg">♠♥♣♦</span>
                   <span className="text-xs">四人掼蛋</span>
                 </div>
@@ -128,13 +116,13 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
               <button
                 type="button"
                 onClick={() => setSelectedVariant(GameVariant.ThreePlayer)}
-                className={`flex-1 py-2.5 rounded text-sm font-bold transition-all duration-200 ${
+                className={`py-3 rounded-xl text-sm font-semibold transition-all duration-200 border ${
                   selectedVariant === GameVariant.ThreePlayer
-                    ? 'bg-[#5a8d3c] text-white shadow-lg shadow-[#5a8d3c]/30'
-                    : 'bg-[#2a2419] text-[#808080] border border-[#3c3c3c] hover:border-[#6a9955]'
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-transparent shadow-lg shadow-emerald-500/25'
+                    : 'bg-white/[0.04] text-slate-400 border-white/10 hover:border-emerald-400/50 hover:text-slate-200'
                 }`}
               >
-                <div className="flex flex-col items-center gap-0.5">
+                <div className="flex flex-col items-center gap-1">
                   <span className="text-lg">♠♥♦</span>
                   <span className="text-xs">三人掼蛋</span>
                 </div>
@@ -143,16 +131,12 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
           </div>
 
           <div>
-            <label className="block text-[11px] font-mono uppercase tracking-wider mb-2 text-[#d2b59b]">
-              Player Name
-            </label>
+            <label className="section-label block mb-2">昵称</label>
             <input
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full bg-[#2a2419] border border-[#3c3c3c] p-2.5 rounded text-[#d4d4d4] text-sm
-                         placeholder:text-[#5a5a5a] focus:outline-none focus:border-[#007acc] focus:ring-1 focus:ring-[#007acc]/30
-                         transition-all duration-200"
+              className="field"
               placeholder="输入用户名..."
               maxLength={10}
               required
@@ -160,131 +144,99 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
           </div>
 
           <div>
-            <label className="block text-[11px] font-mono uppercase tracking-wider mb-2 text-[#d2b59b]">
-              Room ID
-            </label>
+            <label className="section-label block mb-2">房间号</label>
             <input
               type="text"
               value={roomId}
               onChange={e => setRoomId(e.target.value)}
-              className="w-full bg-[#2a2419] border border-[#3c3c3c] p-2.5 rounded text-[#d4d4d4] text-sm
-                         placeholder:text-[#5a5a5a] focus:outline-none focus:border-[#007acc] focus:ring-1 focus:ring-[#007acc]/30
-                         transition-all duration-200"
+              className="field font-mono"
               placeholder="default"
             />
           </div>
 
-          <button
-            type="submit"
-            className="w-full bg-[#0e639c] hover:bg-[#1177bb] active:bg-[#0d5689] text-white py-2.5 rounded
-                       font-bold text-sm tracking-wide transition-all duration-150
-                       active:scale-[0.98]"
-          >
+          <button type="submit" className="btn-primary w-full">
             加入游戏
           </button>
 
-          <button
-            type="button"
-            onClick={handleCreateRoom}
-            className="w-full bg-[#5a8d3c] hover:bg-[#6aa04a] active:bg-[#4a7a2e] text-white py-2.5 rounded
-                       font-bold text-sm tracking-wide transition-all duration-150
-                       active:scale-[0.98]"
-          >
+          <button type="button" onClick={handleCreateRoom} className="btn-success w-full">
             + 创建新房间
           </button>
 
           <button
             type="button"
             onClick={() => setShowRoomList(!showRoomList)}
-            className="w-full bg-transparent hover:bg-[#2a2d2e] text-[#808080] hover:text-[#cccccc]
-                       py-2 rounded border border-[#3c3c3c] text-sm font-mono
-                       transition-all duration-150"
+            className="btn-ghost w-full"
           >
             {showRoomList ? '隐藏房间列表' : '查看房间列表'}
           </button>
 
-          {/* Tip */}
-          <p className="text-[10px] text-[#5a5a5a] text-center font-mono">
-            按 i 键切换摸鱼模式 · VS Code 伪装界面
+          <p className="text-[11px] text-slate-500 text-center">
+            牌桌内按 <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-slate-300">i</kbd> 切换摸鱼模式
           </p>
         </form>
 
-        {/* Room List */}
+        {/* 房间列表 */}
         {showRoomList && (
-          <div className="bg-[#3c3528] p-6 rounded-lg border border-[#333333] w-96 max-h-96 overflow-y-auto
-                          shadow-2xl shadow-black/30">
+          <div className="glass p-5 sm:p-6 w-full lg:flex-1 max-h-[70vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-mono font-bold text-[#d2b59b] uppercase tracking-wider">
-                活跃房间
-              </h2>
-              <span className="text-[10px] text-[#5a5a5a] font-mono">
-                {roomList.length} 个房间
-              </span>
+              <h2 className="section-label">活跃房间</h2>
+              <span className="chip-info">{roomList.length} 个</span>
             </div>
 
             {roomList.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-[#5a5a5a]">
+              <div className="flex flex-col items-center justify-center py-14 text-slate-500">
                 <span className="text-4xl mb-3 opacity-30">♢</span>
-                <p className="text-sm font-mono">暂无活跃房间</p>
-                <p className="text-[10px] mt-1">创建房间后这里会显示</p>
+                <p className="text-sm">暂无活跃房间</p>
+                <p className="text-[11px] mt-1">创建房间后这里会显示</p>
               </div>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2.5">
                 {roomList.map((room, i) => (
                   <div
                     key={room.id}
                     onClick={() => handleQuickJoin(room.id)}
-                    className="group bg-[#2a2419] p-4 rounded border border-[#3c3c3c]
-                               hover:border-[#007acc] hover:bg-[#2a2419]/80
-                               cursor-pointer transition-all duration-200
-                               animate-[fadeIn_0.3s_ease-out_both]"
-                    style={{ animationDelay: `${i * 60}ms` }}
+                    className="group glass-soft px-4 py-3.5 hover:bg-white/[0.09] hover:border-sky-400/40
+                               cursor-pointer transition-all duration-200 animate-fade-in"
+                    style={{ animationDelay: `${i * 50}ms` }}
                   >
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[#9cdcfe] font-bold text-sm font-mono">
+                    <div className="flex justify-between items-start gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sky-300 font-semibold text-sm font-mono truncate">
                           {room.id}
-                        </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1 truncate">
+                          房主 {room.hostName}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`text-[10px] px-2 py-0.5 rounded font-mono ${
-                            room.inGame
-                              ? 'bg-[#5a1a1a] text-[#f48771]'
-                              : 'bg-[#1a3a1a] text-[#89d185]'
-                          }`}
-                        >
-                          {room.inGame ? '游戏中' : '等待中'}
-                        </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {room.inGame ? (
+                          <span className="chip-danger">游戏中</span>
+                        ) : (
+                          <span className="chip-success">等待中</span>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleQuickJoin(room.id);
                           }}
                           disabled={room.inGame && room.playerCount >= 4}
-                          className={`text-[10px] px-2 py-0.5 rounded font-mono transition-colors ${
+                          className={
                             room.inGame && room.playerCount >= 4
-                              ? 'bg-[#3c3c3c] text-[#5a5a5a] cursor-not-allowed'
-                              : 'bg-[#0e639c] text-white hover:bg-[#1177bb]'
-                          }`}
+                              ? 'btn bg-white/5 text-slate-500 px-3 py-1 text-xs'
+                              : 'btn-primary px-3 py-1 text-xs'
+                          }
                         >
                           加入
                         </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-[#808080]">
-                        <span className="text-[#d2b59b]">host:</span> {room.hostName}
-                      </span>
-                      <span className="text-[#808080] font-mono">
-                        {room.playerCount}/{room.maxPlayers}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1 mt-1.5">
-                      <span className="text-[10px] text-[#5a5a5a] font-mono">
+                    <div className="flex items-center justify-between mt-2.5 text-[11px] text-slate-400">
+                      <span className="chip-violet">
                         {room.gameMode === GameMode.Normal ? '普通模式' : '技能模式'}
+                      </span>
+                      <span className="font-mono tabular-nums">
+                        {room.playerCount}/{room.maxPlayers}
                       </span>
                     </div>
                   </div>
@@ -295,10 +247,9 @@ export const Lobby: React.FC<Props> = ({ onJoin, roomList, onFetchRoomList }) =>
         )}
       </div>
 
-      {/* Footer */}
-      <div className="relative z-10 mt-12 text-[10px] text-[#4a4a4a] font-mono text-center">
-        GuanDan v2.0 · LAN Multiplayer · Press i for Stealth Mode
-      </div>
+      <footer className="relative z-10 mt-10 text-[11px] text-slate-600 tracking-wide text-center">
+        GuanDan · LAN Multiplayer
+      </footer>
     </div>
   );
 };

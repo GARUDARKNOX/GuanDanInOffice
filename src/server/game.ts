@@ -255,6 +255,8 @@ export class Game {
     
     // 记录发牌后的原始手牌 + 开局时间（供每局落盘复盘用）
     this.initialHands = this.hands.map(h => [...h]);
+    // 每局重新观察各家的"出牌套路"（上一局的套路对本局无意义）
+    this.cardTracker.resetSeatLogs();
     this.startedAt = new Date().toISOString();
     this.recordWritten = false;
     
@@ -430,18 +432,81 @@ export class Game {
       }
   }
   
+  /**
+   * ★ 规则校验：这张牌是否真实在该玩家手里（按 card.id 匹配）。
+   *   进贡/还贡必须用"手里真实持有的牌"，否则会出现凭空造牌
+   *   （旧代码直接信任客户端传来的 card 对象：filter 按 id 删不掉，
+   *   却又 push 给了对方，牌堆总数凭空 +1，产生幽灵牌）。
+   */
+  private ownsCard(seatIndex: number, card: Card | undefined): boolean {
+      if (!card || !card.id) return false;
+      return (this.hands[seatIndex] || []).some(c => c.id === card.id);
+  }
+
+  /** 红桃级牌（逢人配）——规则禁止用于进贡 */
+  private isWildLevelCard(card: Card | undefined): boolean {
+      return !!card && card.isWild === true;
+  }
+
+  /** 该玩家手里"可进贡"的最大牌（排除红桃级牌；红桃级牌不可进贡，不参与比较） */
+  private getTributableLargestCard(seatIndex: number): Card | undefined {
+      const hand = (this.hands[seatIndex] || []).filter(c => !this.isWildLevelCard(c));
+      if (hand.length === 0) return undefined;
+      return getLargestCard(hand, this.level);
+  }
+
+  /**
+   * BOT 自动进贡：取手里最大且非红桃级牌的一张。
+   * ★ 关键点：转移的是"从 hands 数组里真实取出的那个对象"（而不是任何外部构造的牌），
+   *   保证 BOT 绝不会进贡/还贡出自己手里没有的牌。
+   */
+  private botAutoTribute(t: { from: number, to: number, card?: Card }) {
+      if (t.card) return;
+      const player = this.players[t.from];
+      if (!player.isBot) return;
+      const largest = this.getTributableLargestCard(t.from);
+      if (!largest) return;
+      const real = (this.hands[t.from] || []).find(c => c.id === largest.id);
+      if (!real) return;
+      t.card = real;
+      this.hands[t.from] = this.hands[t.from].filter(c => c.id !== real.id);
+      this.hands[t.to].push(real);
+      this.hands[t.to] = sortCards(this.hands[t.to], this.level);
+      this.addHistoryEntry(
+          HistoryEventType.Tribute,
+          `${this.players[t.from].name} 向 ${this.players[t.to].name} 进贡: ${this.getCardDescription([real])}`,
+          t.from,
+          { card: real, to: t.to }
+      );
+  }
+
+  /**
+   * BOT 自动还贡：从自己手牌里挑最小的一张（hands 已按逻辑值降序，末位即最小）。
+   * ★ 同样只转移"手牌里真实存在的对象"，杜绝还出手里没有的牌。
+   */
+  private botAutoReturn(r: { from: number, to: number, card?: Card }) {
+      if (r.card) return;
+      const player = this.players[r.from];
+      if (!player.isBot) return;
+      const hand = this.hands[r.from] || [];
+      if (hand.length === 0) return;
+      const smallest = hand[hand.length - 1];
+      const real = hand.find(c => c.id === smallest.id);
+      if (!real) return;
+      r.card = real;
+      this.hands[r.from] = this.hands[r.from].filter(c => c.id !== real.id);
+      this.hands[r.to].push(real);
+      this.hands[r.to] = sortCards(this.hands[r.to], this.level);
+      this.addHistoryEntry(
+          HistoryEventType.ReturnTribute,
+          `${this.players[r.from].name} 向 ${this.players[r.to].name} 还贡: ${this.getCardDescription([real])}`,
+          r.from,
+          { card: real, to: r.to }
+      );
+  }
+
   processAutoTribute() {
-      this.tributeState.pendingTributes.forEach(t => {
-           const player = this.players[t.from];
-           if (player.isBot) {
-               const hand = this.hands[t.from];
-               const largest = getLargestCard(hand, this.level);
-               t.card = largest;
-               this.hands[t.from] = this.hands[t.from].filter(c => c.id !== largest.id);
-               this.hands[t.to].push(largest);
-               this.hands[t.to] = sortCards(this.hands[t.to], this.level);
-           }
-      });
+      this.tributeState.pendingTributes.forEach(t => this.botAutoTribute(t));
       
       const allDone = this.tributeState.pendingTributes.every(t => t.card);
       if (allDone) {
@@ -452,19 +517,9 @@ export class Game {
           }));
           this.tributeState.pendingTributes = []; 
           
-           this.tributeState.pendingReturns.forEach(r => {
-               const player = this.players[r.from];
-               if (player.isBot) {
-                   const hand = this.hands[r.from];
-                   const smallest = hand[hand.length - 1]; 
-                   r.card = smallest;
-                   this.hands[r.from] = this.hands[r.from].filter(c => c.id !== smallest.id);
-                   this.hands[r.to].push(smallest);
-                   this.hands[r.to] = sortCards(this.hands[r.to], this.level);
-               }
-           });
-           
-           this.checkReturnDone();
+          this.tributeState.pendingReturns.forEach(r => this.botAutoReturn(r));
+          
+          this.checkReturnDone();
       }
   }
 
@@ -475,28 +530,41 @@ export class Game {
       const tribute = this.tributeState.pendingTributes.find(t => t.from === seatIndex && !t.card);
       if (!tribute) return;
       
-      // Verify largest
-      const hand = this.hands[seatIndex];
-      const largest = getLargestCard(hand, this.level);
-      const valPlay = getLogicValue(cards[0].rank, this.level);
-      const valMax = getLogicValue(largest.rank, this.level);
-      
-      if (valPlay < valMax) {
-           this.emitError(seatIndex, 'Must pay the largest card');
+      // ★ 规则1：不能进贡手里没有的牌（服务端强校验，防止客户端传出不存在的牌造成"凭空造牌"）
+      if (!this.ownsCard(seatIndex, cards[0])) {
+           this.emitError(seatIndex, '进贡的牌不在你的手牌中');
            return;
       }
       
-      tribute.card = cards[0];
-      this.hands[seatIndex] = this.hands[seatIndex].filter(c => c.id !== cards[0].id);
-      this.hands[tribute.to].push(cards[0]);
+      // ★ 规则2：红桃级牌(逢人配)不能进贡
+      if (this.isWildLevelCard(cards[0])) {
+           this.emitError(seatIndex, '红桃级牌(逢人配)不能进贡，请改贡其他最大牌');
+           return;
+      }
+      
+      // Verify largest（红桃级牌不可进贡，因此不参与"最大牌"的比较）
+      const largest = this.getTributableLargestCard(seatIndex);
+      const valPlay = getLogicValue(cards[0].rank, this.level);
+      const valMax = largest ? getLogicValue(largest.rank, this.level) : -1;
+      
+      if (valPlay < valMax) {
+           this.emitError(seatIndex, '必须进贡手中最大的牌');
+           return;
+      }
+      
+      // 用"手牌里真实存在的对象"转移，而不是信任客户端传来的对象
+      const realCard = this.hands[seatIndex].find(c => c.id === cards[0].id)!;
+      tribute.card = realCard;
+      this.hands[seatIndex] = this.hands[seatIndex].filter(c => c.id !== realCard.id);
+      this.hands[tribute.to].push(realCard);
       this.hands[tribute.to] = sortCards(this.hands[tribute.to], this.level);
       
       // Add history entry for tribute
       this.addHistoryEntry(
           HistoryEventType.Tribute,
-          `${this.players[seatIndex].name} 向 ${this.players[tribute.to].name} 进贡: ${this.getCardDescription([cards[0]])}`,
+          `${this.players[seatIndex].name} 向 ${this.players[tribute.to].name} 进贡: ${this.getCardDescription([realCard])}`,
           seatIndex,
-          { card: cards[0], to: tribute.to }
+          { card: realCard, to: tribute.to }
       );
       
       const allDone = this.tributeState.pendingTributes.every(t => t.card);
@@ -551,26 +619,9 @@ export class Game {
           }));
           this.tributeState.pendingTributes = [];
           
-          // Auto-process bot return tributes (same as processAutoTribute)
-          this.tributeState.pendingReturns.forEach(r => {
-              const player = this.players[r.from];
-              if (player.isBot) {
-                  const hand = this.hands[r.from];
-                  const smallest = hand[hand.length - 1]; 
-                  r.card = smallest;
-                  this.hands[r.from] = this.hands[r.from].filter(c => c.id !== smallest.id);
-                  this.hands[r.to].push(smallest);
-                  this.hands[r.to] = sortCards(this.hands[r.to], this.level);
-                  
-                  // Add history entry for bot return tribute
-                  this.addHistoryEntry(
-                      HistoryEventType.ReturnTribute,
-                      `${this.players[r.from].name} 向 ${this.players[r.to].name} 还贡: ${this.getCardDescription([smallest])}`,
-                      r.from,
-                      { card: smallest, to: r.to }
-                  );
-              }
-          });
+          // Auto-process bot return tributes（与 processAutoTribute 同一套实现：
+          // 只从 BOT 自己的手牌里取牌，保证不会还出手里没有的牌）
+          this.tributeState.pendingReturns.forEach(r => this.botAutoReturn(r));
           
           this.checkReturnDone();
           this.broadcastGameState();
@@ -586,17 +637,25 @@ export class Game {
       const ret = this.tributeState.pendingReturns.find(r => r.from === seatIndex && !r.card);
       if (!ret) return;
       
-      ret.card = cards[0];
-      this.hands[seatIndex] = this.hands[seatIndex].filter(c => c.id !== cards[0].id);
-      this.hands[ret.to].push(cards[0]);
+      // ★ 规则：不能还贡手里没有的牌（服务端强校验，防止凭空造牌/幽灵牌）
+      if (!this.ownsCard(seatIndex, cards[0])) {
+          this.emitError(seatIndex, '还贡的牌不在你的手牌中');
+          return;
+      }
+      
+      // 用"手牌里真实存在的对象"转移
+      const realCard = this.hands[seatIndex].find(c => c.id === cards[0].id)!;
+      ret.card = realCard;
+      this.hands[seatIndex] = this.hands[seatIndex].filter(c => c.id !== realCard.id);
+      this.hands[ret.to].push(realCard);
       this.hands[ret.to] = sortCards(this.hands[ret.to], this.level);
       
       // Add history entry for return tribute
       this.addHistoryEntry(
           HistoryEventType.ReturnTribute,
-          `${this.players[seatIndex].name} 向 ${this.players[ret.to].name} 还贡: ${this.getCardDescription([cards[0]])}`,
+          `${this.players[seatIndex].name} 向 ${this.players[ret.to].name} 还贡: ${this.getCardDescription([realCard])}`,
           seatIndex,
-          { card: cards[0], to: ret.to }
+          { card: realCard, to: ret.to }
       );
       
       this.checkReturnDone();
@@ -667,9 +726,10 @@ export class Game {
       const newHand = playerHand.filter(c => !cards.some(played => played.id === c.id));
       this.hands[seatIndex] = newHand;
       
-      // 记录全局已出牌
+      // 记录全局已出牌 + 该座位的"出牌套路"（是否自由领出，用于判断他手里还剩什么结构）
       this.playedCards.push(...cards);
-      this.cardTracker.recordPlay(cards);
+      const isLead = !this.lastHand || this.lastHand.playerIndex === seatIndex;
+      this.cardTracker.recordPlay(cards, seatIndex, hand, isLead);
       
       this.lastHand = { playerIndex: seatIndex, hand };
       this.passCount = 0;
@@ -797,6 +857,8 @@ export class Game {
       }
       
       this.roundActions[seatIndex] = { type: 'pass' };
+      // 记录"他对哪种牌型选择了过牌"——pass 过某牌型通常说明他手里没有该类牌
+      this.cardTracker.recordPass(seatIndex, this.lastHand?.hand.type);
       console.log(`[handlePass] Player ${seatIndex} passed.`);
       
       // Add history entry
