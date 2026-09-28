@@ -1543,17 +1543,15 @@ export class Bot {
       const canFinishWithBomb = afterSmallest.length === 0 ||
         (afterSmallest.length > 0 && !!getHandType(afterSmallest, this.level)) ||
         this.areAllCardsBombs();
-      // ★ 队友已头游（剩0张）→ 我方已保底，目标是抢二游/避免末游：
-      //   此时要"不惜代价"主动用炸弹清牌抢名次，绝不能把炸弹憋在手里、
-      //   领小对子/散牌让对手有机可乘（本局 BOT2 事故：抓 9999/10101010/KKKK
-      //   三炸，队友头游后却领对 QQ 被级牌对压走，炸弹一个没出、末游）。
-      const partnerOut = !this.isThreePlayer && this.handsInfo[this.partnerIdx()] === 0;
+      // ★ 修复：主动领出炸弹的唯一正当收益是"冲刺"——出完这颗炸后剩余牌能顺利走完。
+      //   队友头游后抢二游也**不是**"先甩炸弹"的理由：正确打法是"散牌先行、炸弹留底"，
+      //   否则先甩两个炸、剩一堆散牌走不完，二游照样被抢（snj9iq 这局 BOT2 事故：
+      //   剩 ♠2♠2+AAAA+8888+♥7+♣9+555，队友头游后先甩 8888、AAAA，剩散牌走不完）。
       const shouldLeadBomb =
         enemiesLow ||
-        (partnerOut && myBombs > 0) ||
         (canFinishWithBomb && myCards <= 12);
-      // 开局牌太多时仍然留炸（队友已头游抢二游 / 对手濒走 除外）
-      const notTooEarly = myCards <= 15 || enemiesLow || partnerOut;
+      // 开局牌太多时仍然留炸
+      const notTooEarly = myCards <= 15 || enemiesLow;
       if (shouldLeadBomb && notTooEarly) {
         // 主动领出时用最小的炸（大炸留底做绝对控制）
         const sorted = [...bombGroups].sort((a, b) => bombStrength(a, this.level) - bombStrength(b, this.level));
