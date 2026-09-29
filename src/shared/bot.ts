@@ -1959,17 +1959,27 @@ export class Bot {
       return !!h && h.type !== HandType.Single;
     });
     if (planNonSingle.length > 0) {
-      let best: Card[] | null = null;
-      let bestHands = Number.MAX_SAFE_INTEGER;
-      for (const g of planNonSingle) {
-        if (!this.canPlay(g.cards)) continue;
-        const rest = this.cards.filter(c => !g.cards.some(gc => gc.id === c.id));
-        const hands = (this.handPlan as any).estimateHands
-          ? (this.handPlan as any).estimateHands(rest, this.level)
-          : rest.length;
-        if (hands < bestHands) { bestHands = hands; best = g.cards; }
+      const isBombLike = (g: { cards: Card[] }) => {
+        const h = getHandType(g.cards, this.level);
+        return h && (h.type === HandType.Bomb || h.type === HandType.StraightFlush ||
+          h.type === HandType.FourKings || h.type === HandType.ThreeKings);
+      };
+      // ★ 修复：优先出"普通非单张"（对子/三条/顺子/钢板等，value 小先出），
+      //   炸弹/同花顺留后；实在没有普通非单张才出炸弹类，且按强度升序（先小后大）。
+      //   原"剩余手数最少"因 estimateHands 不识别同花顺，会把"出同花顺后剩
+      //   8888+大小王"误算成 3 手、"出8888后剩同花顺+大小王"误算成 6 手，
+      //   从而先甩同花顺（大炸）、把 8888 留后（BOT2 剩大小王+同花顺+8888 事故）。
+      const normal = planNonSingle.filter(g => !isBombLike(g));
+      if (normal.length > 0) {
+        normal.sort((a, b) =>
+          (getHandType(a.cards, this.level)?.value || 0) - (getHandType(b.cards, this.level)?.value || 0));
+        if (this.canPlay(normal[0].cards)) return [...normal[0].cards];
       }
-      if (best && best.length > 0) return [...best];
+      const bombs = planNonSingle.filter(g => isBombLike(g));
+      if (bombs.length > 0) {
+        bombs.sort((a, b) => bombStrength(a, this.level) - bombStrength(b, this.level));
+        if (this.canPlay(bombs[0].cards)) return [...bombs[0].cards];
+      }
     }
 
     const groups = this.groupByRawRank();
