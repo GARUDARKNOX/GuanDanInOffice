@@ -1773,12 +1773,20 @@ export class Bot {
     });
 
     // tracker驱动：对手双大王/大小王都有 → 避免出单张送控制权
+    // ★ 修复：只有当我领出的单张会被对手王压时才避——我握有大王时，领出大王
+    //   无人能压（大王已是最大单张），无需避。此时正确打法是"先出单张(大小王)、
+    //   再出炸弹(8888)、最后同花顺"（牌型从小到大），而不是跳过单张先甩炸弹。
+    //   （打12这局 BOT2 事故：剩大小王+同花顺+8888，却被"避单张"逼得先甩同花顺，
+    //   把最小的单张大小王留到最后，本末倒置。）
     if (this.tracker && mySingles.length > 0) {
-      const bjRem = this.getEnemyRemaining(Rank.BigJoker);
-      const sjRem = this.getEnemyRemaining(Rank.SmallJoker);
-      if (bjRem >= 2 || (bjRem >= 1 && sjRem >= 1)) {
-        const nonSingle = this.findBestNonSingle();
-        if (nonSingle) return nonSingle;
+      const iHoldBigJoker = this.cards.some(c => c.rank === Rank.BigJoker);
+      if (!iHoldBigJoker) {
+        const bjRem = this.getEnemyRemaining(Rank.BigJoker);
+        const sjRem = this.getEnemyRemaining(Rank.SmallJoker);
+        if (bjRem >= 2 || (bjRem >= 1 && sjRem >= 1)) {
+          const nonSingle = this.findBestNonSingle();
+          if (nonSingle) return nonSingle;
+        }
       }
     }
 
