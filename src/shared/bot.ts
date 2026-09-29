@@ -3102,6 +3102,7 @@ export class Bot {
           if (val > target.value) {
             const sameRankCount = this.countSameRank(c.rank);
             if (sameRankCount >= 4) continue; // 炸弹绝对不拆出单张
+            if (c.isWild) continue; // ★ 逢人配是炸弹/同花顺的一部分，不拆出单张
             if (sameRankCount <= 1) {
               result.push([c]);
             }
@@ -3417,6 +3418,20 @@ export class Bot {
     const theyAreRunning = (enemyCards > 0 && enemyCards <= 8) || (nextEnemyCards > 0 && nextEnemyCards <= 5);
     const myEndgame = myCards <= 12;
     if (!theyAreRunning && !myEndgame) return false;
+    // ★ 方案B：出牌者濒走时，若手里有王/级牌（1 张）能压住这张单张，就先用王/级牌压，
+    //   别烧 4 张炸弹——1 张换 1 张比 4 张换 1 张省（打12这局 #92 事故：BOT2 有小王/大王
+    //   能压单 ♠8，却用炸弹 333♥Q※ 压，被 Bot3 的 8888 反压、炸弹白烧）。
+    if (target.type === HandType.Single) {
+      const hasControlSingle = this.cards.some(c => {
+        if (this.countSameRank(c.rank) >= 4) return false; // 不拆炸弹
+        if (this.isPartOfStraightFlush(c)) return false; // 不拆同花顺
+        if (c.isWild) return false; // 逢人配是炸弹/同花顺的一部分，不拆出单张
+        const v = getLogicValue(c.rank, this.level);
+        return v > target.value &&
+          (c.rank === Rank.BigJoker || c.rank === Rank.SmallJoker || c.rank === this.level);
+      });
+      if (hasControlSingle) return false; // 有独立王/级牌能压，不烧炸弹
+    }
     return this.canControlAfterBomb(target);
   }
 
