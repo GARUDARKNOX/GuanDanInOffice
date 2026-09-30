@@ -1554,11 +1554,17 @@ export class Bot {
       //      来压、我再反压，绝不能再"散牌先行"出那手弱散牌送人头（e328io 这局 BOT2：
       //      剩 KK+5555+33333+同花顺，领出 KK 被濒走的 Bot3 用 8888 炸掉、二游拱手让人）。
       const anyEnemyNearOut = activeEnemies.some(s => this.handsInfo[s] > 0 && this.handsInfo[s] <= 5);
-      // ★ 炸弹主导：炸弹数 ≥3 且明显多于散牌（炸弹 ≥ 散牌手数+1）→ 强牌强打，
-      //   即使开局也主动领最小炸冲刺、和对手炸弹对冲。彩蛋牌(4炸弹+1同花顺+2散牌)
-      //   本就该这么打，而不是散牌先行被动挨打（e328io 这局 BOT2 开局领♥6被Bot3
-      //   一路领出压制、最后才三游）。
-      const bombDominant = myBombs >= 3 && myBombs >= nonBombGroups.length;
+      // ★ 炸弹主导：炸弹占主导 → 强牌强打，主动领最小炸冲刺、和对手炸弹对冲。
+      //   两种情况：
+      //   1) 炸弹数 ≥ 散牌手数（炸弹是主力）——彩蛋 4炸弹+1同花顺+2散牌
+      //   2) ≥2 炸且散牌全是单张（弱牌靠炸弹护送）——ri9a51 这局 BOT2 出完三炸后
+      //      剩 KKKKKK+JJJJJ 两炸 + ♦9♦8♠10 三散单，本该继续领炸压场、散牌收尾，
+      //      却因 myBombs=2 掉出炸弹主导、散牌先行领 ♦9 被 Bot3 压。
+      const allLooseSingles = nonBombGroups.every(g => {
+        const h = getHandType(g.cards, this.level);
+        return h && h.type === HandType.Single;
+      });
+      const bombDominant = myBombs >= 2 && (myBombs >= nonBombGroups.length || allLooseSingles);
       const bombFlood = bombDominant ||
         (myBombs >= 2 && nonBombGroups.length === 0) ||
         (myBombs >= 2 && nonBombGroups.length <= 1 && anyEnemyNearOut);
@@ -2727,6 +2733,20 @@ export class Bot {
       const leaderNearFinish = !this.isAlly(lastPlayerIndex) && enemyCards > 0 && enemyCards <= 5;
       if (!mustBreakForNextOne && !leaderNearFinish && myCards > 5) {
         return null;
+      }
+    }
+
+    // ★ 炸弹主导（≥2炸且散牌手数≤炸弹数 或 散牌全单张）：面对对手炸弹果断对炸，
+    //   抢控制权后连续领炸走完。ri9a51 这局 BOT2 剩 KKKKKK+JJJJJ+3散单，面对 Bot3 的
+    //   逢人配炸/33333 却因下面"队友头游+对手牌多(26)不对炸"一路憋到对手快走完才出手。
+    if (isBomb) {
+      const looseGroups = this.handPlan.groups.filter((_, i) => !this.handPlan.getBombIndices().has(i));
+      const allLooseSingles = looseGroups.every(g => {
+        const h = getHandType(g.cards, this.level);
+        return h && h.type === HandType.Single;
+      });
+      if (this.countMyBombs() >= 2 && (looseGroups.length <= this.countMyBombs() || allLooseSingles)) {
+        return this.findBomb(target);
       }
     }
 
