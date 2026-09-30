@@ -28,6 +28,128 @@ interface TributeState {
   nextStartPlayer?: number;
 }
 
+// ============ 彩蛋：名字为「牛来」的玩家每局获得 4 个炸弹 + 1 个同花顺 ============
+// 炸弹样式（每次随机组合、且相邻局不重复）：
+//   four  = 4 张同点纯炸
+//   five  = 5 张同点炸
+//   six   = 6 张同点炸
+//   wild  = 逢人配炸（3 张同点 + 1 张红桃级牌）
+//   kings = 天王炸（2 小王 + 2 大王）
+type BombStyle = 'four' | 'five' | 'six' | 'wild' | 'kings';
+
+// 跨局记忆：最近一次「牛来」的炸弹样式签名，用于保证每局样式不同
+let lastNiLaiSignature = '';
+
+function randomPick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** 从 deck 就地取出 n 张指定 rank 的牌（按 rank 数值匹配，含王） */
+function takeRank(deck: Card[], rank: number, n: number): Card[] {
+  const taken: Card[] = [];
+  for (let i = deck.length - 1; i >= 0 && taken.length < n; i--) {
+    if (deck[i].rank === rank) {
+      taken.push(deck[i]);
+      deck.splice(i, 1);
+    }
+  }
+  return taken;
+}
+
+/** 构造同花顺：5 张同花色连续（避开级牌，就地取牌） */
+function buildStraightFlush(deck: Card[], level: number): { cards: Card[], rank: number } | null {
+  // 起始 rank 3~8，保证 5 连且最大 rank ≤12（不含 A，规避 A2345 特殊），且区间内不含级牌
+  const starts = [3, 4, 5, 6, 7, 8].filter(s => {
+    for (let k = 0; k < 5; k++) if (s + k === level) return false;
+    return true;
+  });
+  if (starts.length === 0) return null;
+  const start = randomPick(starts);
+  const suit = randomPick([0, 1, 2, 3]);
+  const cards: Card[] = [];
+  for (let k = 0; k < 5; k++) {
+    const rank = start + k;
+    const idx = deck.findIndex(c => c.suit === suit && c.rank === rank);
+    if (idx < 0) return null;
+    cards.push(deck.splice(idx, 1)[0]);
+  }
+  return { cards, rank: start };
+}
+
+/** 构造 4 个不同样式的炸弹（就地取牌） */
+function buildNiLaiBombs(deck: Card[], level: number): { bombs: Card[][], signature: string } | null {
+  const allRanks = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+  const nonLevelRanks = allRanks.filter(r => r !== level);
+  const styles: BombStyle[] = shuffleArray<BombStyle>(['four', 'five', 'six', 'wild', 'kings']).slice(0, 4);
+  const bombs: Card[][] = [];
+  const sigParts: string[] = [];
+
+  for (const style of styles) {
+    if (style === 'kings') {
+      const small = takeRank(deck, 15, 2);
+      const big = takeRank(deck, 16, 2);
+      if (small.length < 2 || big.length < 2) return null;
+      bombs.push([...small, ...big]);
+      sigParts.push('kings');
+    } else if (style === 'wild') {
+      const r = randomPick(nonLevelRanks);
+      const three = takeRank(deck, r, 3);
+      if (three.length < 3) return null;
+      const wildIdx = deck.findIndex(c => c.rank === level && c.suit === Suit.Hearts);
+      if (wildIdx < 0) return null;
+      const wildCard = deck.splice(wildIdx, 1)[0];
+      bombs.push([...three, wildCard]);
+      sigParts.push(`wild:${r}`);
+    } else {
+      const count = style === 'four' ? 4 : style === 'five' ? 5 : 6;
+      const r = randomPick(nonLevelRanks);
+      const cards = takeRank(deck, r, count);
+      if (cards.length < count) return null;
+      bombs.push(cards);
+      sigParts.push(`${style}:${r}`);
+    }
+  }
+  return { bombs, signature: sigParts.sort().join('|') };
+}
+
+/** 构造「牛来」的整手 27 张：4 炸弹 + 1 同花顺 + 填充散牌（成功时才从原 deck 移除） */
+function buildNiLaiHand(deck: Card[], level: number, previousSignature: string): { hand: Card[], signature: string } {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const working = [...deck];
+    const sf = buildStraightFlush(working, level);
+    if (!sf) continue;
+    const bombsResult = buildNiLaiBombs(working, level);
+    if (!bombsResult) continue;
+
+    const signature = bombsResult.signature + `|sf:${sf.rank}`;
+    if (signature === previousSignature) continue;
+
+    const assigned = bombsResult.bombs.flat().concat(sf.cards);
+    if (assigned.length > 27) continue;
+    const fillNeeded = 27 - assigned.length;
+    const fill = shuffleArray(working).slice(0, fillNeeded);
+    if (fill.length < fillNeeded) continue;
+
+    const hand = assigned.concat(fill);
+    // 从原 deck 移除这 27 张（按 id）
+    const handIds = new Set(hand.map(c => c.id));
+    for (let i = deck.length - 1; i >= 0; i--) {
+      if (handIds.has(deck[i].id)) deck.splice(i, 1);
+    }
+    return { hand, signature };
+  }
+  return { hand: [], signature: previousSignature };
+}
+
 export class Game {
   io: Server;
   roomId: string;
@@ -245,8 +367,33 @@ export class Game {
     deck = shuffleDeck(deck);
     
     this.hands = Array.from({ length: this.numPlayers }, () => [] as Card[]);
-    for (let i = 0; i < totalCards; i++) {
-        this.hands[i % this.numPlayers].push(deck[i]);
+
+    // ★ 彩蛋：名字为「牛来」的玩家每局获得 4 炸弹 + 1 同花顺（样式每局不同）
+    const niLaiSeat = this.players.findIndex(p => p.name === '牛来');
+    if (niLaiSeat >= 0 && this.numPlayers === 4) {
+      const result = buildNiLaiHand(deck, this.level, lastNiLaiSignature);
+      if (result.hand.length === 27) {
+        this.hands[niLaiSeat] = result.hand;
+        lastNiLaiSignature = result.signature;
+        // 剩余 deck 牌按座位顺序发给其他玩家（每人 27 张）
+        let idx = 0;
+        for (let s = 0; s < this.numPlayers; s++) {
+          if (s === niLaiSeat) continue;
+          for (let k = 0; k < 27; k++) {
+            this.hands[s].push(deck[idx++]);
+          }
+        }
+        console.log(`[彩蛋] 牛来(座${niLaiSeat})本局获得 4 炸弹 + 1 同花顺，签名=${result.signature}`);
+      } else {
+        // 构造失败则回退正常发牌
+        for (let i = 0; i < totalCards; i++) {
+          this.hands[i % this.numPlayers].push(deck[i]);
+        }
+      }
+    } else {
+      for (let i = 0; i < totalCards; i++) {
+          this.hands[i % this.numPlayers].push(deck[i]);
+      }
     }
     
     // Process hands
