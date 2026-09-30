@@ -33,12 +33,12 @@ interface TributeState {
 //   four  = 4 张同点纯炸
 //   five  = 5 张同点炸
 //   six   = 6 张同点炸
-//   wild  = 逢人配炸（3 张同点 + 1 张红桃级牌）
 //   kings = 天王炸（2 小王 + 2 大王）
-type BombStyle = 'four' | 'five' | 'six' | 'wild' | 'kings';
+// 注：不使用 wild（逢人配炸弹），红桃级牌是万能牌会被 HandPlan 挪去补同花顺，导致炸弹被拆散。
+type BombStyle = 'four' | 'five' | 'six' | 'kings';
 
-// 跨局记忆：最近一次「牛来」的炸弹样式签名，用于保证每局样式不同
-let lastNiLaiSignature = '';
+// 跨局记忆：每个彩蛋座位最近一次使用的炸弹样式签名，用于保证每局样式不同
+const lastEasterEggSignatures: { [seat: number]: string } = {};
 
 function randomPick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -86,12 +86,25 @@ function buildStraightFlush(deck: Card[], level: number): { cards: Card[], rank:
 }
 
 /** 构造 4 个不同样式的炸弹（就地取牌） */
-function buildNiLaiBombs(deck: Card[], level: number): { bombs: Card[][], signature: string } | null {
+function buildNiLaiBombs(deck: Card[], level: number, excludeRanks: number[] = []): { bombs: Card[][], signature: string } | null {
   const allRanks = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
-  const nonLevelRanks = allRanks.filter(r => r !== level);
-  const styles: BombStyle[] = shuffleArray<BombStyle>(['four', 'five', 'six', 'wild', 'kings']).slice(0, 4);
+  // 炸弹 rank 避开级牌 + 同花顺区间，避免 HandPlan 重分组时把同花顺的牌拆去凑炸弹
+  const pool = allRanks.filter(r => r !== level && !excludeRanks.includes(r));
+
+  // 根据 deck 实际资源筛掉不可用样式。不用 wild（逢人配炸弹）——红桃级牌是万能牌，
+  // HandPlan 会把它挪去补同花顺导致炸弹被拆散（实测 wild 炸弹会被拆成三条+单张）。
+  const smallJokers = deck.filter(c => c.rank === 15).length;
+  const bigJokers = deck.filter(c => c.rank === 16).length;
+  const available: BombStyle[] = ['four', 'five', 'six'];
+  if (smallJokers >= 2 && bigJokers >= 2) available.push('kings');
+
+  const styles: BombStyle[] = shuffleArray<BombStyle>(available).slice(0, 4);
+  // 可用样式不足 4（第二个彩蛋座位无王时只有 four/five/six）用 four 变体补足，rank 不同
+  while (styles.length < 4) styles.push('four');
+
   const bombs: Card[][] = [];
   const sigParts: string[] = [];
+  const usedRanks = new Set<number>();
 
   for (const style of styles) {
     if (style === 'kings') {
@@ -100,20 +113,14 @@ function buildNiLaiBombs(deck: Card[], level: number): { bombs: Card[][], signat
       if (small.length < 2 || big.length < 2) return null;
       bombs.push([...small, ...big]);
       sigParts.push('kings');
-    } else if (style === 'wild') {
-      const r = randomPick(nonLevelRanks);
-      const three = takeRank(deck, r, 3);
-      if (three.length < 3) return null;
-      const wildIdx = deck.findIndex(c => c.rank === level && c.suit === Suit.Hearts);
-      if (wildIdx < 0) return null;
-      const wildCard = deck.splice(wildIdx, 1)[0];
-      bombs.push([...three, wildCard]);
-      sigParts.push(`wild:${r}`);
     } else {
       const count = style === 'four' ? 4 : style === 'five' ? 5 : 6;
-      const r = randomPick(nonLevelRanks);
+      const candidates = pool.filter(x => !usedRanks.has(x));
+      if (candidates.length === 0) return null;
+      const r = randomPick(candidates);
       const cards = takeRank(deck, r, count);
       if (cards.length < count) return null;
+      usedRanks.add(r);
       bombs.push(cards);
       sigParts.push(`${style}:${r}`);
     }
@@ -127,7 +134,9 @@ function buildNiLaiHand(deck: Card[], level: number, previousSignature: string):
     const working = [...deck];
     const sf = buildStraightFlush(working, level);
     if (!sf) continue;
-    const bombsResult = buildNiLaiBombs(working, level);
+    // 炸弹 rank 避开同花顺的 5 个 rank，防止 HandPlan 把同花顺里的牌拆去补炸弹
+    const sfRanks = [sf.rank, sf.rank + 1, sf.rank + 2, sf.rank + 3, sf.rank + 4];
+    const bombsResult = buildNiLaiBombs(working, level, sfRanks);
     if (!bombsResult) continue;
 
     const signature = bombsResult.signature + `|sf:${sf.rank}`;
@@ -136,7 +145,14 @@ function buildNiLaiHand(deck: Card[], level: number, previousSignature: string):
     const assigned = bombsResult.bombs.flat().concat(sf.cards);
     if (assigned.length > 27) continue;
     const fillNeeded = 27 - assigned.length;
-    const fill = shuffleArray(working).slice(0, fillNeeded);
+    // ★ 填充牌避开所有已用 rank（炸弹 rank + 同花顺 rank + 级牌/王）——
+    //   否则填充牌会和同花顺/炸弹里的牌凑成对子、三条，HandPlan 会优先识别对子/三条
+    //   而把同花顺拆散（实测 fill 抽到同花顺 rank 的牌会把同花顺拆成单张+对子）。
+    const usedRanks = new Set<number>([level]);
+    sfRanks.forEach(r => usedRanks.add(r));
+    for (const b of bombsResult.bombs) if (b.length) usedRanks.add(b[0].rank);
+    const fillPool = working.filter(c => !usedRanks.has(c.rank));
+    const fill = shuffleArray(fillPool).slice(0, fillNeeded);
     if (fill.length < fillNeeded) continue;
 
     const hand = assigned.concat(fill);
@@ -368,26 +384,41 @@ export class Game {
     
     this.hands = Array.from({ length: this.numPlayers }, () => [] as Card[]);
 
-    // ★ 彩蛋：名字为「牛来」的玩家每局获得 4 炸弹 + 1 同花顺（样式每局不同）
-    const niLaiSeat = this.players.findIndex(p => p.name === '牛来');
-    if (niLaiSeat >= 0 && this.numPlayers === 4) {
-      const result = buildNiLaiHand(deck, this.level, lastNiLaiSignature);
-      if (result.hand.length === 27) {
-        this.hands[niLaiSeat] = result.hand;
-        lastNiLaiSignature = result.signature;
-        // 剩余 deck 牌按座位顺序发给其他玩家（每人 27 张）
+    // ★ 彩蛋：名字为「牛来」的玩家、以及 BOT2（座位2的Bot）每局获得 4 炸弹 + 1 同花顺（样式每局不同）
+    const easterEggSeats = [...new Set(this.players
+      .filter(p => p && (p.name === '牛来' || (p.isBot && p.seatIndex === 2)))
+      .map(p => p.seatIndex))];
+    if (easterEggSeats.length > 0 && this.numPlayers === 4) {
+      let allOk = true;
+      for (const seat of easterEggSeats) {
+        const prevSig = lastEasterEggSignatures[seat] || '';
+        const result = buildNiLaiHand(deck, this.level, prevSig);
+        if (result.hand.length === 27) {
+          this.hands[seat] = result.hand;
+          lastEasterEggSignatures[seat] = result.signature;
+          console.log(`[彩蛋] ${this.players[seat]?.name}(座${seat})本局获得 4 炸弹 + 1 同花顺，签名=${result.signature}`);
+        } else {
+          allOk = false;
+          break;
+        }
+      }
+      if (allOk) {
+        // 剩余 deck 牌按座位顺序发给非彩蛋玩家（每人 27 张）
+        const eggSet = new Set(easterEggSeats);
         let idx = 0;
         for (let s = 0; s < this.numPlayers; s++) {
-          if (s === niLaiSeat) continue;
+          if (eggSet.has(s)) continue;
           for (let k = 0; k < 27; k++) {
             this.hands[s].push(deck[idx++]);
           }
         }
-        console.log(`[彩蛋] 牛来(座${niLaiSeat})本局获得 4 炸弹 + 1 同花顺，签名=${result.signature}`);
       } else {
-        // 构造失败则回退正常发牌
+        // 构造失败则重新正常发牌
+        let freshDeck = this.gameVariant === GameVariant.ThreePlayer ? createThreePlayerDeck() : createDeck();
+        freshDeck = shuffleDeck(freshDeck);
+        this.hands = Array.from({ length: this.numPlayers }, () => [] as Card[]);
         for (let i = 0; i < totalCards; i++) {
-          this.hands[i % this.numPlayers].push(deck[i]);
+          this.hands[i % this.numPlayers].push(freshDeck[i]);
         }
       }
     } else {
