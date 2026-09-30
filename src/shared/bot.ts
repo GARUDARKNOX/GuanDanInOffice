@@ -1547,11 +1547,17 @@ export class Bot {
       //   队友头游后抢二游也**不是**"先甩炸弹"的理由：正确打法是"散牌先行、炸弹留底"，
       //   否则先甩两个炸、剩一堆散牌走不完，二游照样被抢（snj9iq 这局 BOT2 事故：
       //   剩 ♠2♠2+AAAA+8888+♥7+♣9+555，队友头游后先甩 8888、AAAA，剩散牌走不完）。
+      // ★ 炸弹洪流：非炸弹手牌已清完(nonBomb==0)且手里 ≥2 个炸弹(含同花顺)时，
+      //   主动连续领出最小炸弹冲刺——连续出炸弹几乎无人能连续反压，一路清牌走头游。
+      //   彩蛋 BOT2 事故：4炸弹+1同花顺出完散牌后，抱着 5 手炸弹不出、干等对手走完，
+      //   最后炸弹捂到烂、名次全无。
+      const bombFlood = myBombs >= 2 && nonBombGroups.length === 0;
       const shouldLeadBomb =
         enemiesLow ||
-        (canFinishWithBomb && myCards <= 12);
-      // 开局牌太多时仍然留炸
-      const notTooEarly = myCards <= 15 || enemiesLow;
+        (canFinishWithBomb && myCards <= 12) ||
+        bombFlood;
+      // 开局牌太多时仍然留炸（炸弹洪流除外：炸弹就是主力，无需留散牌垫底）
+      const notTooEarly = myCards <= 15 || enemiesLow || bombFlood;
       if (shouldLeadBomb && notTooEarly) {
         // 主动领出时用最小的炸（大炸留底做绝对控制）
         const sorted = [...bombGroups].sort((a, b) => bombStrength(a, this.level) - bombStrength(b, this.level));
