@@ -1547,11 +1547,21 @@ export class Bot {
       //   队友头游后抢二游也**不是**"先甩炸弹"的理由：正确打法是"散牌先行、炸弹留底"，
       //   否则先甩两个炸、剩一堆散牌走不完，二游照样被抢（snj9iq 这局 BOT2 事故：
       //   剩 ♠2♠2+AAAA+8888+♥7+♣9+555，队友头游后先甩 8888、AAAA，剩散牌走不完）。
-      // ★ 炸弹洪流：非炸弹手牌已清完(nonBomb==0)且手里 ≥2 个炸弹(含同花顺)时，
-      //   主动连续领出最小炸弹冲刺——连续出炸弹几乎无人能连续反压，一路清牌走头游。
-      //   彩蛋 BOT2 事故：4炸弹+1同花顺出完散牌后，抱着 5 手炸弹不出、干等对手走完，
-      //   最后炸弹捂到烂、名次全无。
-      const bombFlood = myBombs >= 2 && nonBombGroups.length === 0;
+      // ★ 炸弹洪流：手里 ≥2 个炸弹(含同花顺)且散牌极少时，主动领出最小炸弹冲刺。
+      //   两种情况：
+      //   1) 散牌已清完(nonBomb==0)——纯炸弹，连续领炸一路清牌（彩蛋 4炸弹+1同花顺）。
+      //   2) 只剩 1 手散牌(nonBomb==1)且对手濒走(≤5张)——必须先领炸压场，逼对手的炸
+      //      来压、我再反压，绝不能再"散牌先行"出那手弱散牌送人头（e328io 这局 BOT2：
+      //      剩 KK+5555+33333+同花顺，领出 KK 被濒走的 Bot3 用 8888 炸掉、二游拱手让人）。
+      const anyEnemyNearOut = activeEnemies.some(s => this.handsInfo[s] > 0 && this.handsInfo[s] <= 5);
+      // ★ 炸弹主导：炸弹数 ≥3 且明显多于散牌（炸弹 ≥ 散牌手数+1）→ 强牌强打，
+      //   即使开局也主动领最小炸冲刺、和对手炸弹对冲。彩蛋牌(4炸弹+1同花顺+2散牌)
+      //   本就该这么打，而不是散牌先行被动挨打（e328io 这局 BOT2 开局领♥6被Bot3
+      //   一路领出压制、最后才三游）。
+      const bombDominant = myBombs >= 3 && myBombs >= nonBombGroups.length + 1;
+      const bombFlood = bombDominant ||
+        (myBombs >= 2 && nonBombGroups.length === 0) ||
+        (myBombs >= 2 && nonBombGroups.length <= 1 && anyEnemyNearOut);
       const shouldLeadBomb =
         enemiesLow ||
         (canFinishWithBomb && myCards <= 12) ||
