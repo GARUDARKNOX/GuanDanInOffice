@@ -1558,7 +1558,7 @@ export class Bot {
       //   即使开局也主动领最小炸冲刺、和对手炸弹对冲。彩蛋牌(4炸弹+1同花顺+2散牌)
       //   本就该这么打，而不是散牌先行被动挨打（e328io 这局 BOT2 开局领♥6被Bot3
       //   一路领出压制、最后才三游）。
-      const bombDominant = myBombs >= 3 && myBombs >= nonBombGroups.length + 1;
+      const bombDominant = myBombs >= 3 && myBombs >= nonBombGroups.length;
       const bombFlood = bombDominant ||
         (myBombs >= 2 && nonBombGroups.length === 0) ||
         (myBombs >= 2 && nonBombGroups.length <= 1 && anyEnemyNearOut);

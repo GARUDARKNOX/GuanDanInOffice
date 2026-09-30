@@ -145,13 +145,15 @@ function buildNiLaiHand(deck: Card[], level: number, previousSignature: string):
     const assigned = bombsResult.bombs.flat().concat(sf.cards);
     if (assigned.length > 27) continue;
     const fillNeeded = 27 - assigned.length;
-    // ★ 填充牌避开所有已用 rank（炸弹 rank + 同花顺 rank + 级牌/王）——
+    // ★ 填充牌避开所有已用 rank（炸弹 rank + 同花顺 rank + 级牌/王）+ 同花顺的花色——
     //   否则填充牌会和同花顺/炸弹里的牌凑成对子、三条，HandPlan 会优先识别对子/三条
-    //   而把同花顺拆散（实测 fill 抽到同花顺 rank 的牌会把同花顺拆成单张+对子）。
+    //   而把同花顺拆散；同花色的相邻牌(如 ♠K)还会被 HandPlan 拿去"扩展"同花顺
+    //   （♠8♠9♠10♠J♠Q 被升级成 ♠9♠10♠J♠Q♠K，♠8 变散牌、炸弹数凭空少一个）。
+    const sfSuit = sf.cards[0].suit;
     const usedRanks = new Set<number>([level]);
     sfRanks.forEach(r => usedRanks.add(r));
     for (const b of bombsResult.bombs) if (b.length) usedRanks.add(b[0].rank);
-    const fillPool = working.filter(c => !usedRanks.has(c.rank));
+    const fillPool = working.filter(c => !usedRanks.has(c.rank) && c.suit !== sfSuit);
     const fill = shuffleArray(fillPool).slice(0, fillNeeded);
     if (fill.length < fillNeeded) continue;
 
