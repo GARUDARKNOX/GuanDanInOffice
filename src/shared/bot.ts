@@ -1565,7 +1565,14 @@ export class Bot {
         return h && h.type === HandType.Single;
       });
       const bombDominant = myBombs >= 2 && (myBombs >= nonBombGroups.length || allLooseSingles);
-      const bombFlood = bombDominant ||
+      // ★ 非炸弹护送：非炸弹需要炸弹护送（领非炸弹被压就用炸抢回）。领炸弹时不能把
+      //   炸弹甩到"剩余炸弹 < 剩余非炸弹"的裸奔状态——否则对手用炸弹打断后，非炸弹
+      //   全部裸奔等死（fu2jvt 等局 BOT2 先甩一堆炸、剩2套非炸弹+1大炸保底的事故）。
+      //   要求领完这颗炸后：剩余炸弹 ≥ 剩余非炸弹（1:1 护送）。
+      const bombsAfterLead = myBombs - 1;
+      const canEscortNonBomb = nonBombGroups.length === 0 || bombsAfterLead >= nonBombGroups.length;
+      const bombFlood =
+        (bombDominant && canEscortNonBomb) ||
         (myBombs >= 2 && nonBombGroups.length === 0) ||
         (myBombs >= 2 && nonBombGroups.length <= 1 && anyEnemyNearOut);
       const shouldLeadBomb =
