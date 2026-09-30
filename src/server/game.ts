@@ -386,9 +386,12 @@ export class Game {
     
     this.hands = Array.from({ length: this.numPlayers }, () => [] as Card[]);
 
-    // ★ 彩蛋：名字为「牛来」的玩家、以及 BOT2（座位2的Bot）每局获得 4 炸弹 + 1 同花顺（样式每局不同）
+    // ★ 彩蛋：名字为「牛来」的玩家每局获得 4 炸弹 + 1 同花顺（样式每局不同）。
+    //   BOT2 只有在「牛来」在场时才一并发彩蛋（当牛来的队友组强队）；
+    //   牛来不在场时，BOT2 也按正常发牌，不享受彩蛋。
+    const hasNiLai = this.players.some(p => p && p.name === '牛来');
     const easterEggSeats = [...new Set(this.players
-      .filter(p => p && (p.name === '牛来' || (p.isBot && p.seatIndex === 2)))
+      .filter(p => p && (p.name === '牛来' || (hasNiLai && p.isBot && p.seatIndex === 2)))
       .map(p => p.seatIndex))];
     if (easterEggSeats.length > 0 && this.numPlayers === 4) {
       let allOk = true;
